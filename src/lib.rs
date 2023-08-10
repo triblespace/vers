@@ -42,5 +42,6 @@ pub use rmq::fast_rmq::FastRmq;
 pub mod bit_vec;
 pub mod elias_fano;
 pub mod rmq;
+pub mod trees;
 
 pub(crate) mod util;
