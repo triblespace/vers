@@ -101,19 +101,20 @@ impl UDSTree {
     }
 
     /// Find the minimum index greater than `position` that has the excess `excess` compared to
-    /// `position`.
+    /// `position` - 1. This query is only intended for open parenthesis, where the excess immediately
+    /// left of the position is lower. The query is not defined for closed parenthesis.
     ///
     /// # Panics
     /// Panics if `position` is not a valid index in the rs vector.
+    #[must_use]
     fn fwd_search(&self, position: usize, excess: usize) -> usize {
-        let current_excess: isize = if self.tree.get_unchecked(position) == OPEN {
-            1
-        } else {
-            -1
-        };
+        debug_assert!(
+            self.tree.get_unchecked(position) == OPEN,
+            "query only works for open parenthesis"
+        );
 
         // search initial block
-        if let Some(result) = self.fwd_search_within_block(position + 1, excess, current_excess) {
+        if let Some(result) = self.fwd_search_within_block(position + 1, excess, 1) {
             return result;
         }
 
@@ -165,6 +166,8 @@ impl UDSTree {
         .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
     }
 
+    /// Search a block of bits within the bitvector for an index right of `position`
+    /// with the given `excess`. The excess at `position` is given by `current_excess`.
     fn fwd_search_within_block(
         &self,
         mut position: usize,
@@ -217,6 +220,15 @@ impl UDSTree {
         }
 
         return None;
+    }
+
+    /// Find a matching closing parenthesis for the parenthesis at `position`. Assumes that the
+    /// parenthesis at `position` is an open parenthesis. The query is not defined for closed
+    /// parenthesis.
+    /// Returns the index of the closing parenthesis.
+    #[must_use]
+    fn find_close(&self, position: usize) -> usize {
+        self.fwd_search(position, 0)
     }
 
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
