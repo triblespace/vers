@@ -18,18 +18,18 @@ const fn min_arg(a: i16, b: i16) -> i16 {
     a * ((a <= b) as i16) + b * ((a > b) as i16)
 }
 
-const fn max_arg(a: i16, b: i16) -> i16 {
-    a * ((a >= b) as i16) + b * ((a < b) as i16)
-}
-
 const fn calculate_excess_lookup() -> [u16; 1 << 16] {
     let mut lookup = [0; 1 << 16];
     let mut pattern = 0;
 
     while pattern < lookup.len() {
-        let mut excess = 0i16;
-        let mut min_excess = 0i16;
-        let mut bit = 0;
+        let mut excess = if (pattern & 1) == OPEN as usize {
+            1i16
+        } else {
+            -1i16
+        };
+        let mut min_excess = excess;
+        let mut bit = 1;
 
         while bit < 16 {
             if pattern & (1 << bit) == OPEN as usize {
@@ -77,6 +77,8 @@ struct MinMaxNode {
 #[derive(Clone, Debug)]
 pub struct UDSTree {
     tree: RsVec,
+    // The offset of the first leaf in the min-max tree.
+    leaf_offset: usize,
     min_max: Vec<MinMaxNode>,
 }
 
@@ -100,24 +102,67 @@ impl UDSTree {
 
     /// Find the minimum index greater than `position` that has the excess `excess` compared to
     /// `position`.
+    ///
+    /// # Panics
+    /// Panics if `position` is not a valid index in the rs vector.
     fn fwd_search(&self, position: usize, excess: usize) -> usize {
-        let mut index = position + 1;
-        let mut current_excess: isize = if self.tree.get_unchecked(position) == OPEN {
+        let current_excess: isize = if self.tree.get_unchecked(position) == OPEN {
             1
         } else {
             -1
         };
 
         // search initial block
-        if let Some(result) = self.fwd_search_within_block(index, excess, current_excess) {
+        if let Some(result) = self.fwd_search_within_block(position + 1, excess, current_excess) {
             return result;
         }
 
-        // search tree
-        todo!("Implement min-max tree search");
+        let base_excess = self.excess(position);
 
-        // search block specified by tree
-        todo!("Implement block search");
+        // search tree
+        let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
+        let mut target_node;
+
+        // upwards min-max tree search: search sibling nodes of the current node to see if they
+        // contain a matching excess
+        // we assume that we find a suitable position in the tree, because the tree should be a
+        // balanced parentheses expression
+        loop {
+            if current_node % 2 == 0 {
+                // search right sibling
+                if self.min_max[current_node + 1].min_excess <= base_excess as isize {
+                    target_node = current_node + 1;
+                    break;
+                }
+            } else {
+                current_node = (current_node - 1) / 2; // search parent instead
+            }
+        }
+
+        // downwards min-max tree search: take the left-most child of the target node
+        // until we reach a leaf
+        loop {
+            if target_node >= self.leaf_offset {
+                // target node is a leaf
+                break;
+            }
+
+            // search children
+            let left_child = target_node * 2;
+            if self.min_max[left_child].min_excess <= base_excess as isize {
+                target_node = left_child;
+            } else {
+                target_node = left_child + 1;
+            }
+        }
+
+        // search block specified by the min-max tree
+        self.fwd_search_within_block(
+            target_node * MIN_MAX_BLOCK_SIZE,
+            base_excess,
+            self.min_max[target_node - 1].total_excess,
+        )
+        .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
     }
 
     fn fwd_search_within_block(
@@ -358,6 +403,7 @@ impl UDSTreeBuilder {
         if tree_depth == 0 {
             return Ok(UDSTree {
                 tree: RsVec::from_bit_vec(self.tree),
+                leaf_offset: 0,
                 min_max: vec![],
             });
         }
@@ -439,6 +485,7 @@ impl UDSTreeBuilder {
 
         Ok(UDSTree {
             tree: RsVec::from_bit_vec(self.tree),
+            leaf_offset: 1 << tree_depth,
             min_max: min_max_tree,
         })
     }

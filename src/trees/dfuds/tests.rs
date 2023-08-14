@@ -13,6 +13,7 @@ fn test_fwd_search_within_block() {
 
     let tree = UDSTree {
         tree: RsVec::from_bit_vec(expr),
+        leaf_offset: 0,  // mock data, not used
         min_max: vec![], // mock data, not used
     };
 
@@ -31,6 +32,7 @@ fn test_fwd_search_within_full_block() {
 
     let tree = UDSTree {
         tree: RsVec::from_bit_vec(expr),
+        leaf_offset: 0,  // mock data, not used
         min_max: vec![], // mock data, not used
     };
 
@@ -70,4 +72,23 @@ fn construct_tree() {
     }
     builder.visit_remaining_nodes();
     assert!(builder.build().is_ok());
+}
+
+#[test]
+fn test_fwd_search_across_tree() {
+    let mut tree = UDSTreeBuilder::with_capacity(512);
+    tree.visit_node(500)
+        .expect("failed to visit node with 500 children");
+    tree.visit_remaining_nodes();
+    let tree = tree.build().expect("failed to build tree");
+    println!("{:?}", tree.min_max);
+    println!("{:?}", tree.leaf_offset);
+
+    assert_eq!(tree.fwd_search(0, 0), 1001);
+    assert_eq!(tree.fwd_search(1, 0), 1000);
+    assert_eq!(tree.fwd_search(500, 0), 501);
+
+    assert_eq!(tree.fwd_search(0, 1), 1);
+    assert_eq!(tree.fwd_search(0, 2), 2);
+    assert_eq!(tree.fwd_search(3, 3), 6);
 }
