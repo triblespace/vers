@@ -275,7 +275,7 @@ impl UDSTreeBuilder {
         Self::default()
     }
 
-    /// Creates a new builder with the given node capacity pre-allocated.
+    /// Creates a new builder with the given node capacity pre-allocated (including the root node).
     #[must_use]
     pub fn with_capacity(nodes: usize) -> Self {
         let mut bit_vec = BitVec::with_capacity(nodes * 2);

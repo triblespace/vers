@@ -1,5 +1,6 @@
-use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, MIN_MAX_BLOCK_SIZE};
+use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, CLOSE, MIN_MAX_BLOCK_SIZE};
 use crate::{BitVec, RsVec};
+use rand::Rng;
 
 #[test]
 fn test_fwd_search_within_block() {
@@ -88,4 +89,47 @@ fn test_fwd_search_across_tree() {
 
     assert_eq!(tree.fwd_search(0, 2), 1);
     assert_eq!(tree.fwd_search(3, 3), 5);
+}
+
+#[test]
+fn test_randomized_find_close() {
+    const TREE_SIZE: usize = 2000;
+    const MAX_CHILDREN: usize = 20;
+
+    let mut tree = UDSTreeBuilder::with_capacity(TREE_SIZE);
+    let mut children = 0;
+    let mut rng = rand::thread_rng();
+
+    // generate random tree
+    while children < (TREE_SIZE - MAX_CHILDREN) {
+        let n = rng.gen_range(1..MAX_CHILDREN);
+        tree.visit_node(n).expect("failed to append children");
+        children += n;
+    }
+    tree.visit_node(TREE_SIZE - children - 1)
+        .expect("failed to append last children");
+    tree.visit_remaining_nodes();
+    let tree = tree.build().expect("failed to build tree");
+
+    // for each open bracket, find the matching close bracket, and check if the close bracket's excess matches
+    // and if the close bracket is the first close bracket with that excess
+    for i in 0..tree.tree.len() {
+        if tree.tree.get_unchecked(i) == CLOSE {
+            continue;
+        }
+
+        let excess = tree.excess(i);
+        let close = tree.find_close(i);
+        assert_eq!(tree.excess(close), excess - 1);
+        assert_eq!(
+            close,
+            tree.tree
+                .iter()
+                .enumerate()
+                .skip(i)
+                .find(|&(i, b)| b == CLOSE && tree.excess(i) == excess - 1)
+                .map(|(i, _)| i)
+                .unwrap()
+        );
+    }
 }
