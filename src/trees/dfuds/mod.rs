@@ -118,9 +118,6 @@ impl UDSTree {
     /// Find the minimum index greater than `position` that has the excess `excess` compared to
     /// `position` - 1. This query is only intended for open parenthesis, where the excess immediately
     /// left of the position is lower. The query is not defined for closed parenthesis.
-    ///
-    /// # Panics
-    /// Panics if `position` is not a valid index in the rs vector.
     #[must_use]
     fn fwd_search(&self, position: usize, excess: usize) -> usize {
         debug_assert!(
@@ -185,50 +182,52 @@ impl UDSTree {
     /// with the given `excess`. The excess at `position` is given by `current_excess`.
     fn fwd_search_within_block(
         &self,
-        mut position: usize,
+        position: usize,
         excess: usize,
         mut current_excess: isize,
     ) -> Option<usize> {
+        let mut index = position;
+
         // search within the current block until a position aligned to the lookup table is reached
-        while position % 16 != 0 {
-            if position / MIN_MAX_BLOCK_SIZE > position / MIN_MAX_BLOCK_SIZE {
+        while index % 16 != 0 {
+            if index / MIN_MAX_BLOCK_SIZE > position / MIN_MAX_BLOCK_SIZE {
                 return None;
             }
 
-            current_excess += if self.tree.get_unchecked(position) == OPEN {
+            current_excess += if self.tree.get_unchecked(index) == OPEN {
                 1
             } else {
                 -1
             };
 
             if current_excess == excess as isize {
-                return Some(position);
+                return Some(index);
             }
 
-            position += 1;
+            index += 1;
         }
 
         // skip limbs if they don't contain the target excess. Assume that the current excess is
         // higher than the target excess, because we are dealing with balanced parentheses
         // expressions.
-        while position / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE {
-            let lookup = EXCESS_LOOKUP[self.tree.get_bits_unchecked(position, 16) as usize];
+        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE {
+            let lookup = EXCESS_LOOKUP[self.tree.get_bits_unchecked(index, 16) as usize];
             let min_excess = get_minimum_excess(lookup) as isize;
 
             if current_excess + min_excess > excess as isize {
-                position += 16;
+                index += 16;
                 current_excess += get_total_excess(lookup) as isize;
             } else {
                 for _ in 0..16 {
-                    current_excess += if self.tree.get_unchecked(position) == OPEN {
+                    current_excess += if self.tree.get_unchecked(index) == OPEN {
                         1
                     } else {
                         -1
                     };
                     if current_excess == excess as isize {
-                        return Some(position);
+                        return Some(index);
                     }
-                    position += 1;
+                    index += 1;
                 }
                 unreachable!("Did not find target excess in limb even though it should be there");
             }
