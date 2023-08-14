@@ -89,7 +89,7 @@ impl Default for UDSTree {
 }
 
 impl UDSTree {
-    /// Calculate the excess of open parenthesis up to but excluding the given index.
+    /// Calculate the excess of open parenthesis up and including the given index.
     /// This value is always positive, since DFUDS trees are made up of balanced parentheses expressions.
     ///
     /// # Parameters
@@ -97,7 +97,7 @@ impl UDSTree {
     /// coincide with the node index in the tree.
     #[must_use]
     fn excess(&self, index: usize) -> usize {
-        self.tree.rank0(index) - self.tree.rank1(index)
+        self.tree.rank0(index + 1) - self.tree.rank1(index + 1)
     }
 
     /// Find the minimum index greater than `position` that has the excess `excess` compared to
