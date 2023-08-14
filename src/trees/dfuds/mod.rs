@@ -414,14 +414,14 @@ impl UDSTreeBuilder {
                 min_excess: isize::MAX,
                 total_excess: self.tree.len() as isize
             };
-            1 << (tree_depth + 1)
+            (1 << (tree_depth + 1)) - 1
         ];
 
         // total excess across the entire dfuds tree
         let mut excess = 0;
 
         // initialize leaf nodes
-        min_max_tree[(1 << tree_depth)..]
+        min_max_tree[(1 << tree_depth) - 1..]
             .iter_mut()
             .enumerate()
             .for_each(|(i, node)| {
@@ -431,7 +431,12 @@ impl UDSTreeBuilder {
                 );
 
                 // min excess is stored per-block
-                let mut min = excess;
+                let mut min = excess
+                    + if self.tree.get_unchecked(i * MIN_MAX_BLOCK_SIZE) == OPEN {
+                        1
+                    } else {
+                        -1
+                    };
 
                 for j in 0..MIN_MAX_BLOCK_SIZE / 64 {
                     let mut length = 64;
@@ -452,7 +457,7 @@ impl UDSTreeBuilder {
                     // update min excess
                     for k in 0..length {
                         let bit = limb & (1 << k);
-                        if bit > 0 {
+                        if bit == OPEN {
                             excess += 1;
                         } else {
                             excess -= 1;
@@ -472,11 +477,11 @@ impl UDSTreeBuilder {
                 };
             });
 
-        for depth in (0..tree_depth - 1).rev() {
-            for i in 0..1 << depth {
-                let left = min_max_tree[2 * i];
-                let right = min_max_tree[2 * i + 1];
-                min_max_tree[(1 << depth) - 1 + i] = MinMaxNode {
+        for depth in (0..tree_depth).rev() {
+            for i in ((1 << depth) - 1)..((2 << depth) - 1) {
+                let left = min_max_tree[2 * i + 1];
+                let right = min_max_tree[2 * i + 2];
+                min_max_tree[i] = MinMaxNode {
                     min_excess: left.min_excess.min(right.min_excess),
                     total_excess: right.total_excess,
                 };
