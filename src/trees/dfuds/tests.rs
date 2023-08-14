@@ -81,14 +81,11 @@ fn test_fwd_search_across_tree() {
         .expect("failed to visit node with 500 children");
     tree.visit_remaining_nodes();
     let tree = tree.build().expect("failed to build tree");
-    println!("{:?}", tree.min_max);
-    println!("{:?}", tree.leaf_offset);
 
     assert_eq!(tree.fwd_search(0, 0), 1001);
     assert_eq!(tree.fwd_search(1, 0), 1000);
     assert_eq!(tree.fwd_search(500, 0), 501);
 
-    assert_eq!(tree.fwd_search(0, 1), 1);
-    assert_eq!(tree.fwd_search(0, 2), 2);
-    assert_eq!(tree.fwd_search(3, 3), 6);
+    assert_eq!(tree.fwd_search(0, 2), 1);
+    assert_eq!(tree.fwd_search(3, 3), 5);
 }

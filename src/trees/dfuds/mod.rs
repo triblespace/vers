@@ -182,9 +182,11 @@ impl UDSTree {
             } else {
                 -1
             };
+
             if current_excess == excess as isize {
                 return Some(position);
             }
+
             position += 1;
         }
 
