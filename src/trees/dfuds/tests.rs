@@ -1,4 +1,4 @@
-use crate::trees::dfuds::{UDSTree, MIN_MAX_BLOCK_SIZE};
+use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, MIN_MAX_BLOCK_SIZE};
 use crate::{BitVec, RsVec};
 
 #[test]
@@ -13,6 +13,7 @@ fn test_fwd_search_within_block() {
 
     let tree = UDSTree {
         tree: RsVec::from_bit_vec(expr),
+        min_max: vec![], // mock data, not used
     };
 
     assert_eq!(tree.fwd_search(1, 0), 6);
@@ -30,6 +31,7 @@ fn test_fwd_search_within_full_block() {
 
     let tree = UDSTree {
         tree: RsVec::from_bit_vec(expr),
+        min_max: vec![], // mock data, not used
     };
 
     for i in 0..MIN_MAX_BLOCK_SIZE / 2 {
@@ -40,4 +42,32 @@ fn test_fwd_search_within_full_block() {
             i
         );
     }
+}
+
+#[test]
+fn construct_tree() {
+    // build empty tree
+    let mut builder = UDSTreeBuilder::new();
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // minimal tree that doesn't require a min-max tree
+    let mut builder = UDSTreeBuilder::new();
+    assert!(builder.visit_node(64).is_ok());
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // tree with 2 blocks
+    let mut builder = UDSTreeBuilder::new();
+    assert!(builder.visit_node(130).is_ok());
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // tree with many blocks
+    let mut builder = UDSTreeBuilder::new();
+    for _ in 0..20 {
+        assert!(builder.visit_node(128).is_ok());
+    }
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
 }

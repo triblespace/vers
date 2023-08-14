@@ -29,7 +29,6 @@ const fn calculate_excess_lookup() -> [u16; 1 << 16] {
     while pattern < lookup.len() {
         let mut excess = 0i16;
         let mut min_excess = 0i16;
-        let mut max_excess = 0i16;
         let mut bit = 0;
 
         while bit < 16 {
@@ -39,10 +38,9 @@ const fn calculate_excess_lookup() -> [u16; 1 << 16] {
                 excess -= 1;
             }
             min_excess = min_arg(min_excess, excess);
-            max_excess = max_arg(max_excess, excess);
             bit += 1;
         }
-        lookup[pattern] = encode_limb_min_max(excess, max_excess, min_excess);
+        lookup[pattern] = encode_limb_min_max(excess, min_excess);
         pattern += 1;
     }
     lookup
@@ -55,25 +53,23 @@ const fn calculate_excess_lookup() -> [u16; 1 << 16] {
 /// - The six least significant bits encode the total excess.
 /// - The next five bits encode the minimum excess. Since the minimum excess can never be 32,
 ///  the most significant bit is always zero and need not be stored.
-/// - The five most significant bits encode the maximum excess. Since the maximum excess is
-/// 32 if and only if the total excess is 32, we need not store the most significant bit,
-/// and instead reuse the most significant bit of the total excess for it.
-/// This way we can encode all three values in 16 bits.
-const fn encode_limb_min_max(total_excess: i16, max_excess: i16, min_excess: i16) -> u16 {
-    (((max_excess + 16) & 0b11111) << 11 | (min_excess + 16) << 6 | (total_excess + 16) & 0b111111)
-        as u16
+const fn encode_limb_min_max(total_excess: i16, min_excess: i16) -> u16 {
+    ((min_excess + 16) << 6 | (total_excess + 16) & 0b111111) as u16
 }
 
 const fn get_minimum_excess(encoding: u16) -> i16 {
     ((encoding >> 6) & 0b11111) as i16 - 16
 }
 
-const fn get_maximum_excess(encoding: u16) -> i16 {
-    (((encoding >> 11) & 0b11111) | (encoding & 0b100000)) as i16 - 16
-}
-
 const fn get_total_excess(encoding: u16) -> i16 {
     (encoding & 0b111111) as i16 - 16
+}
+
+/// A node in the min-max tree that supports forward and backward search.
+#[derive(Clone, Copy, Debug, Default)]
+struct MinMaxNode {
+    min_excess: isize,
+    total_excess: isize,
 }
 
 /// Succinct Depth-first unary degree sequence tree that requires 2n + o(n) bits of space
@@ -81,6 +77,7 @@ const fn get_total_excess(encoding: u16) -> i16 {
 #[derive(Clone, Debug)]
 pub struct UDSTree {
     tree: RsVec,
+    min_max: Vec<MinMaxNode>,
 }
 
 impl Default for UDSTree {
@@ -353,8 +350,96 @@ impl UDSTreeBuilder {
             return Err(format!("Tree has {} unvisited nodes", self.balance));
         }
 
+        // generate min-max tree in a linear vector
+        let blocks = (self.tree.len() + (MIN_MAX_BLOCK_SIZE - 1)) / MIN_MAX_BLOCK_SIZE;
+        let tree_depth = (blocks as f64).log2().ceil() as usize;
+
+        // if the vector only fills one block, we don't need a min-max tree
+        if tree_depth == 0 {
+            return Ok(UDSTree {
+                tree: RsVec::from_bit_vec(self.tree),
+                min_max: vec![],
+            });
+        }
+
+        // TODO: do not use sentinel values, but actually cut out the unused nodes
+        let mut min_max_tree = vec![
+            MinMaxNode {
+                min_excess: isize::MAX,
+                total_excess: self.tree.len() as isize
+            };
+            1 << (tree_depth + 1)
+        ];
+
+        // total excess across the entire dfuds tree
+        let mut excess = 0;
+
+        // initialize leaf nodes
+        min_max_tree[(1 << tree_depth)..]
+            .iter_mut()
+            .enumerate()
+            .for_each(|(i, node)| {
+                debug_assert!(
+                    MIN_MAX_BLOCK_SIZE % 64 == 0,
+                    "block cannot be retrieved as limbs"
+                );
+
+                // min excess is stored per-block
+                let mut min = excess;
+
+                for j in 0..MIN_MAX_BLOCK_SIZE / 64 {
+                    let mut length = 64;
+                    if i * MIN_MAX_BLOCK_SIZE + (j + 1) * 64 >= self.tree.len() {
+                        // TODO we should prune the unused leafs instead of aborting every single read here
+                        // this is a hack to make sure we don't read past the end of the vector
+                        if i * MIN_MAX_BLOCK_SIZE + j * 64 >= self.tree.len() {
+                            break;
+                        }
+
+                        length = self.tree.len() % 64;
+                    };
+
+                    let limb = self
+                        .tree
+                        .get_bits_unchecked(i * MIN_MAX_BLOCK_SIZE + j * 64, length);
+
+                    // update min excess
+                    for k in 0..length {
+                        let bit = limb & (1 << k);
+                        if bit > 0 {
+                            excess += 1;
+                        } else {
+                            excess -= 1;
+                        }
+
+                        min = min.min(excess);
+                    }
+
+                    if length < 64 {
+                        break;
+                    }
+                }
+
+                *node = MinMaxNode {
+                    min_excess: min,
+                    total_excess: excess,
+                };
+            });
+
+        for depth in (0..tree_depth - 1).rev() {
+            for i in 0..1 << depth {
+                let left = min_max_tree[2 * i];
+                let right = min_max_tree[2 * i + 1];
+                min_max_tree[(1 << depth) - 1 + i] = MinMaxNode {
+                    min_excess: left.min_excess.min(right.min_excess),
+                    total_excess: right.total_excess,
+                };
+            }
+        }
+
         Ok(UDSTree {
             tree: RsVec::from_bit_vec(self.tree),
+            min_max: min_max_tree,
         })
     }
 }
