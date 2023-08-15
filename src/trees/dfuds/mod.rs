@@ -134,50 +134,51 @@ impl UDSTree {
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
-        let mut target_node;
 
         // upwards min-max tree search: search sibling nodes of the current node to see if they
         // contain a matching excess
         // we assume that we find a suitable position in the tree, because the tree should be a
         // balanced parentheses expression
-        loop {
-            if current_node % 2 == 0 {
+        while current_node > 0 {
+            if current_node % 2 == 1 {
                 // search right sibling
                 // the position must exist, so if we are here, there must be a right sibling
                 debug_assert!(current_node + 1 < self.min_max.len());
                 if self.min_max[current_node + 1].min_excess <= base_excess as isize {
-                    target_node = current_node + 1;
+                    current_node += 1;
                     break;
                 }
             }
 
-            // the position must exist, so if we are here, we can't already be at the root node
-            debug_assert!(current_node > 0);
             current_node = (current_node - 1) / 2; // move on to parent
         }
 
         // downwards min-max tree search: take the left-most child of the target node
         // until we reach a leaf
         loop {
-            if target_node >= self.leaf_offset {
+            if current_node >= self.leaf_offset {
                 // target node is a leaf
                 break;
             }
 
             // search children
-            let left_child = target_node * 2;
+            let left_child = current_node * 2 + 1;
             if self.min_max[left_child].min_excess <= base_excess as isize {
-                target_node = left_child;
+                current_node = left_child;
             } else {
-                target_node = left_child + 1;
+                current_node = left_child + 1;
             }
         }
 
+        debug_assert!(
+            current_node > self.leaf_offset,
+            "forward tree search returned first leaf, which is not possible"
+        );
         // search block specified by the min-max tree
         self.fwd_search_within_block(
-            target_node * MIN_MAX_BLOCK_SIZE,
+            current_node * MIN_MAX_BLOCK_SIZE,
             base_excess,
-            self.min_max[target_node - 1].total_excess,
+            self.min_max[current_node - 1].total_excess, // this cannot fail, because we can't possibly be in the first leaf
         )
         .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
     }
