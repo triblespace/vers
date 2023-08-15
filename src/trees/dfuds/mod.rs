@@ -143,13 +143,17 @@ impl UDSTree {
         loop {
             if current_node % 2 == 0 {
                 // search right sibling
+                // the position must exist, so if we are here, there must be a right sibling
+                debug_assert!(current_node + 1 < self.min_max.len());
                 if self.min_max[current_node + 1].min_excess <= base_excess as isize {
                     target_node = current_node + 1;
                     break;
                 }
-            } else {
-                current_node = (current_node - 1) / 2; // search parent instead
             }
+
+            // the position must exist, so if we are here, we can't already be at the root node
+            debug_assert!(current_node > 0);
+            current_node = (current_node - 1) / 2; // move on to parent
         }
 
         // downwards min-max tree search: take the left-most child of the target node
