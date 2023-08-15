@@ -215,7 +215,9 @@ impl UDSTree {
         // skip limbs if they don't contain the target excess. Assume that the current excess is
         // higher than the target excess, because we are dealing with balanced parentheses
         // expressions.
-        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE {
+        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE
+            && index + 16 < self.tree.len()
+        {
             let lookup = EXCESS_LOOKUP[self.tree.get_bits_unchecked(index, 16) as usize];
             let min_excess = get_minimum_excess(lookup) as isize;
 
@@ -236,6 +238,22 @@ impl UDSTree {
                 }
                 unreachable!("Did not find target excess in limb even though it should be there");
             }
+        }
+
+        // if there is a non-full limb left, search it bit by bit. This means we are in the last
+        // block of the tree, so we can't possibly fail
+        while index < self.tree.len() {
+            current_excess += if self.tree.get_unchecked(index) == OPEN {
+                1
+            } else {
+                -1
+            };
+
+            if current_excess == excess as isize {
+                return Some(index);
+            }
+
+            index += 1;
         }
 
         return None;
