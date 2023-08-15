@@ -454,7 +454,8 @@ impl UDSTreeBuilder {
         let mut excess = 0;
 
         // initialize leaf nodes
-        min_max_tree[(1 << tree_depth) - 1..]
+        let leaf_offset = (1 << tree_depth) - 1;
+        min_max_tree[leaf_offset..]
             .iter_mut()
             .enumerate()
             .for_each(|(i, node)| {
@@ -526,7 +527,7 @@ impl UDSTreeBuilder {
 
         Ok(UDSTree {
             tree: RsVec::from_bit_vec(self.tree),
-            leaf_offset: 1 << tree_depth,
+            leaf_offset,
             min_max: min_max_tree,
         })
     }
