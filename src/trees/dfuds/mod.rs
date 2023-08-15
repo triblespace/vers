@@ -259,6 +259,134 @@ impl UDSTree {
         return None;
     }
 
+    /// Find the maximum index smaller than `position` such that `index - 1` has the excess `excess` compared to
+    /// `position`.
+    #[must_use]
+    fn bwd_search(&self, position: usize, excess: usize) -> usize {
+        // search initial block
+        if let Some(result) = self.bwd_search_within_block(position - 1, excess, if self.tree.get_unchecked(position) == CLOSE { 1 } else { -1 }) {
+            return result;
+        }
+
+        let base_excess = self.excess(position);
+
+        // search tree
+        let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
+
+        // upwards min-max tree search: search sibling nodes of the current node to see if they
+        // contain a matching excess
+        // we assume that we find a suitable position in the tree, because the tree should be a
+        // balanced parentheses expression
+        while current_node > 0 {
+            if current_node % 2 == 0 {
+                // search left sibling
+                // the position must exist, so if we are here, there must be a left sibling
+                debug_assert!(current_node - 1 < self.min_max.len());
+                if self.min_max[current_node - 1].min_excess <= base_excess as isize || self.min_max[current_node - 1].max_excess >= base_excess as isize {
+                    current_node -= 1;
+                    break;
+                }
+            }
+
+            current_node = (current_node - 1) / 2; // move on to parent
+        }
+
+        // downwards min-max tree search: take the right-most child of the target node
+        // until we reach a leaf
+        loop {
+            if current_node >= self.leaf_offset {
+                // target node is a leaf
+                break;
+            }
+
+            // search children
+            let right_child = current_node * 2 + 2;
+            if self.min_max[right_child].min_excess <= base_excess as isize || self.min_max[right_child].max_excess >= base_excess as isize {
+                current_node = right_child;
+            } else {
+                current_node = right_child - 1;
+            }
+        }
+
+        debug_assert!(
+            current_node < self.min_max.len() - 1,
+            "backward tree search returned last leaf, which is not possible"
+        );
+        // search block specified by the min-max tree
+        self.bwd_search_within_block(
+            (current_node - self.leaf_offset + 1) * MIN_MAX_BLOCK_SIZE - 1,
+            base_excess,
+            self.min_max[current_node].total_excess,
+        )
+            .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
+    }
+
+    /// Search a block of bits within the bitvector for an index right of `position`
+    /// with the given `excess`. The excess at `position` is given by `current_excess`.
+    fn bwd_search_within_block(
+        &self,
+        position: usize,
+        excess: usize,
+        mut current_excess: isize,
+    ) -> Option<usize> {
+        let mut index = position;
+
+        // search within the current block until a position aligned to the lookup table is reached
+        while index % 16 != 15 {
+            if index / MIN_MAX_BLOCK_SIZE < position / MIN_MAX_BLOCK_SIZE {
+                return None;
+            }
+
+            current_excess += if self.tree.get_unchecked(index) == CLOSE {
+                1
+            } else {
+                -1
+            };
+
+            if -current_excess == excess as isize {
+                return Some(index);
+            }
+
+            index -= 1;
+        }
+
+        // skip limbs if they don't contain the target excess. Assume that the current excess is
+        // higher than the target excess, because we are dealing with balanced parentheses
+        // expressions.
+        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE && index >= 15
+        {
+            let lookup = EXCESS_LOOKUP[self.tree.get_bits_unchecked(index - 15, 16) as usize];
+            let min_excess = get_minimum_excess(lookup) as isize;
+            let max_excess = get_maximum_excess(lookup) as isize;
+            let total_excess = get_total_excess(lookup) as isize;
+
+            if current_excess - total_excess + min_excess > excess as isize || current_excess - total_excess + max_excess < excess as isize {
+                current_excess -= total_excess;
+
+                // check the last member of the limb, because we won't check it in the loop
+                if -current_excess == excess as isize {
+                    return Some(index + 1 - 16)
+                }
+                index -= 16;
+            } else {
+                for _ in 0..16 {
+                    current_excess += if self.tree.get_unchecked(index) == CLOSE {
+                        1
+                    } else {
+                        -1
+                    };
+                    if -current_excess == excess as isize {
+                        return Some(index);
+                    }
+                    index -= 1;
+                }
+                unreachable!("Did not find target excess in limb even though it should be there");
+            }
+        }
+
+        return None;
+    }
+
     /// Find a matching closing parenthesis for the parenthesis at `position`. Assumes that the
     /// parenthesis at `position` is an open parenthesis. The query is not defined for closed
     /// parenthesis.
@@ -266,6 +394,19 @@ impl UDSTree {
     #[must_use]
     fn find_close(&self, position: usize) -> usize {
         self.fwd_search(position, 0)
+    }
+
+    /// Find a matching opening parenthesis for the parenthesis at `position`. Assumes that the
+    /// parenthesis at `position` is a closed parenthesis. The query is not defined for open
+    /// parenthesis.
+    /// Returns the index of the opening parenthesis.
+    #[must_use]
+    fn find_open(&self, position: usize) -> usize {
+        debug_assert!(
+            self.tree.get_unchecked(position) == CLOSE,
+            "query only works for closed parenthesis"
+        );
+        self.bwd_search(position, 0)
     }
 
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of

@@ -1,6 +1,34 @@
-use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, CLOSE, MIN_MAX_BLOCK_SIZE};
+use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, CLOSE, MIN_MAX_BLOCK_SIZE, OPEN};
 use crate::{BitVec, RsVec};
 use rand::Rng;
+
+#[test]
+fn construct_tree() {
+    // build empty tree
+    let mut builder = UDSTreeBuilder::new();
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // minimal tree that doesn't require a min-max tree
+    let mut builder = UDSTreeBuilder::new();
+    assert!(builder.visit_node(64).is_ok());
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // tree with 2 blocks
+    let mut builder = UDSTreeBuilder::new();
+    assert!(builder.visit_node(130).is_ok());
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+
+    // tree with many blocks
+    let mut builder = UDSTreeBuilder::new();
+    for _ in 0..20 {
+        assert!(builder.visit_node(128).is_ok());
+    }
+    builder.visit_remaining_nodes();
+    assert!(builder.build().is_ok());
+}
 
 #[test]
 fn test_fwd_search_within_block() {
@@ -48,34 +76,6 @@ fn test_fwd_search_within_full_block() {
 }
 
 #[test]
-fn construct_tree() {
-    // build empty tree
-    let mut builder = UDSTreeBuilder::new();
-    builder.visit_remaining_nodes();
-    assert!(builder.build().is_ok());
-
-    // minimal tree that doesn't require a min-max tree
-    let mut builder = UDSTreeBuilder::new();
-    assert!(builder.visit_node(64).is_ok());
-    builder.visit_remaining_nodes();
-    assert!(builder.build().is_ok());
-
-    // tree with 2 blocks
-    let mut builder = UDSTreeBuilder::new();
-    assert!(builder.visit_node(130).is_ok());
-    builder.visit_remaining_nodes();
-    assert!(builder.build().is_ok());
-
-    // tree with many blocks
-    let mut builder = UDSTreeBuilder::new();
-    for _ in 0..20 {
-        assert!(builder.visit_node(128).is_ok());
-    }
-    builder.visit_remaining_nodes();
-    assert!(builder.build().is_ok());
-}
-
-#[test]
 fn test_fwd_search_across_tree() {
     let mut tree = UDSTreeBuilder::with_capacity(512);
     tree.visit_node(500)
@@ -92,7 +92,74 @@ fn test_fwd_search_across_tree() {
 }
 
 #[test]
-fn test_randomized_find_close() {
+fn test_bwd_search_within_block() {
+    let mut expr = BitVec::from_zeros(10);
+    // generate expression: ((()())())
+    expr.flip_bit(3);
+    expr.flip_bit(5);
+    expr.flip_bit(6);
+    expr.flip_bit(8);
+    expr.flip_bit(9);
+
+    let tree = UDSTree {
+        tree: RsVec::from_bit_vec(expr),
+        leaf_offset: 0,  // mock data, not used
+        min_max: vec![], // mock data, not used
+    };
+
+    assert_eq!(tree.bwd_search(9, 0), 0);
+    assert_eq!(tree.bwd_search(8, 0), 7);
+    assert_eq!(tree.bwd_search(7, 2), 0);
+    assert_eq!(tree.bwd_search(6, 0), 1);
+}
+
+#[test]
+fn test_bwd_search_with_lookup() {
+    let mut expr = BitVec::from_zeros(64);
+    for i in 32..64 {
+        expr.flip_bit(i);
+    }
+
+    let tree = UDSTree {
+        tree: RsVec::from_bit_vec(expr),
+        leaf_offset: 0,  // mock data, not used
+        min_max: vec![], // mock data, not used
+    };
+
+    for i in 0..32 {
+        assert_eq!(
+            tree.bwd_search(64 - i - 1, 0),
+            i,
+            "bwd_search({}, 0) failed",
+            MIN_MAX_BLOCK_SIZE - i - 1
+        );
+    }
+}
+
+#[test]
+fn test_bwd_search_within_full_block() {
+    let mut expr = BitVec::from_zeros(MIN_MAX_BLOCK_SIZE);
+    for i in MIN_MAX_BLOCK_SIZE / 2..MIN_MAX_BLOCK_SIZE {
+        expr.flip_bit(i);
+    }
+
+    let tree = UDSTree {
+        tree: RsVec::from_bit_vec(expr),
+        leaf_offset: 0,  // mock data, not used
+        min_max: vec![], // mock data, not used
+    };
+
+    for i in 0..MIN_MAX_BLOCK_SIZE / 2 {
+        assert_eq!(
+            tree.bwd_search(MIN_MAX_BLOCK_SIZE - i - 1, 0),
+            i,
+            "bwd_search({}, 0) failed",
+            MIN_MAX_BLOCK_SIZE - i - 1
+        );
+    }
+}
+
+fn generate_random_tree() -> UDSTree {
     const TREE_SIZE: usize = 2000;
     const MAX_CHILDREN: usize = 20;
 
@@ -109,7 +176,12 @@ fn test_randomized_find_close() {
     tree.visit_node(TREE_SIZE - children - 1)
         .expect("failed to append last children");
     tree.visit_remaining_nodes();
-    let tree = tree.build().expect("failed to build tree");
+    tree.build().expect("failed to build tree")
+}
+
+#[test]
+fn test_randomized_find_close() {
+    let tree = generate_random_tree();
 
     // for each open bracket, find the matching close bracket, and check if the close bracket's excess matches
     // and if the close bracket is the first close bracket with that excess
@@ -128,6 +200,34 @@ fn test_randomized_find_close() {
                 .enumerate()
                 .skip(i)
                 .find(|&(i, b)| b == CLOSE && tree.excess(i) == excess - 1)
+                .map(|(i, _)| i)
+                .unwrap()
+        );
+    }
+}
+
+#[test]
+fn test_randomized_find_open() {
+    let tree = generate_random_tree();
+
+    // for each open bracket, find the matching close bracket, and check if the close bracket's excess matches
+    // and if the close bracket is the first close bracket with that excess
+    for i in 0..tree.tree.len() {
+        if tree.tree.get_unchecked(i) == OPEN {
+            continue;
+        }
+
+        let excess = tree.excess(i);
+        let open = tree.find_open(i);
+        assert_eq!(tree.excess(open), excess + 1);
+        assert_eq!(
+            open,
+            tree.tree
+                .iter()
+                .enumerate()
+                .rev()
+                .skip(tree.tree.len() - 1 - i)
+                .find(|&(i, b)| b == OPEN && tree.excess(i) == excess + 1)
                 .map(|(i, _)| i)
                 .unwrap()
         );
