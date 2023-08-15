@@ -242,18 +242,20 @@ impl UDSTree {
 
         // if there is a non-full limb left, search it bit by bit. This means we are in the last
         // block of the tree, so we can't possibly fail
-        while index < self.tree.len() {
-            current_excess += if self.tree.get_unchecked(index) == OPEN {
-                1
-            } else {
-                -1
-            };
+        if index + 16 > self.tree.len() {
+            while index < self.tree.len() {
+                current_excess += if self.tree.get_unchecked(index) == OPEN {
+                    1
+                } else {
+                    -1
+                };
 
-            if current_excess == excess as isize {
-                return Some(index);
+                if current_excess == excess as isize {
+                    return Some(index);
+                }
+
+                index += 1;
             }
-
-            index += 1;
         }
 
         return None;
