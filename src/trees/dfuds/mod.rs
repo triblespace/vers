@@ -130,7 +130,7 @@ impl UDSTree {
             return result;
         }
 
-        let base_excess = self.excess(position);
+        let target_excess = if position == 0 { 0 } else { self.excess(position - 1) } + excess;
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
@@ -144,7 +144,7 @@ impl UDSTree {
                 // search right sibling
                 // the position must exist, so if we are here, there must be a right sibling
                 debug_assert!(current_node + 1 < self.min_max.len());
-                if self.min_max[current_node + 1].min_excess <= base_excess as isize {
+                if self.min_max[current_node + 1].min_excess <= target_excess as isize {
                     current_node += 1;
                     break;
                 }
@@ -163,7 +163,7 @@ impl UDSTree {
 
             // search children
             let left_child = current_node * 2 + 1;
-            if self.min_max[left_child].min_excess <= base_excess as isize {
+            if self.min_max[left_child].min_excess <= target_excess as isize {
                 current_node = left_child;
             } else {
                 current_node = left_child + 1;
@@ -174,10 +174,11 @@ impl UDSTree {
             current_node > self.leaf_offset,
             "forward tree search returned first leaf, which is not possible"
         );
+
         // search block specified by the min-max tree
         self.fwd_search_within_block(
-            current_node * MIN_MAX_BLOCK_SIZE,
-            base_excess,
+            (current_node - self.leaf_offset) * MIN_MAX_BLOCK_SIZE,
+            target_excess,
             self.min_max[current_node - 1].total_excess, // this cannot fail, because we can't possibly be in the first leaf
         )
         .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
@@ -225,6 +226,7 @@ impl UDSTree {
                 index += 16;
                 current_excess += get_total_excess(lookup) as isize;
             } else {
+                debug_assert!(current_excess != excess as isize, "excess reached before block start");
                 for _ in 0..16 {
                     current_excess += if self.tree.get_unchecked(index) == OPEN {
                         1
@@ -242,7 +244,7 @@ impl UDSTree {
 
         // if there is a non-full limb left, search it bit by bit. This means we are in the last
         // block of the tree, so we can't possibly fail
-        if index + 16 > self.tree.len() {
+        if index + 16 >= self.tree.len() {
             while index < self.tree.len() {
                 current_excess += if self.tree.get_unchecked(index) == OPEN {
                     1
@@ -270,7 +272,7 @@ impl UDSTree {
             return result;
         }
 
-        let base_excess = self.excess(position);
+        let base_excess = self.excess(position) + excess;
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
