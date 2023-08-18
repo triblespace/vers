@@ -80,11 +80,13 @@ const fn get_total_excess(encoding: u16) -> i16 {
 }
 
 /// A node in the min-max tree that supports forward and backward search.
+// todo since we use absolute excess instead of interval excess, we can use usize instead of isize
 #[derive(Clone, Copy, Debug, Default)]
 struct MinMaxNode {
     min_excess: isize,
     max_excess: isize,
     total_excess: isize,
+    entry_excess: isize,
 }
 
 /// Succinct Depth-first unary degree sequence tree that requires 2n + o(n) bits of space
@@ -272,7 +274,7 @@ impl UDSTree {
             return result;
         }
 
-        let base_excess = self.excess(position) + excess;
+        let target_excess = self.excess(position) + excess;
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
@@ -286,7 +288,11 @@ impl UDSTree {
                 // search left sibling
                 // the position must exist, so if we are here, there must be a left sibling
                 debug_assert!(current_node - 1 < self.min_max.len());
-                if self.min_max[current_node - 1].min_excess <= base_excess as isize || self.min_max[current_node - 1].max_excess >= base_excess as isize {
+
+                // if the target excess is either between the min and max excess of the sibling,
+                // or the excess before the sibling interval (entry_excess) is equal to target,
+                // we descend into the sibling, otherwise we continue searching upwards
+                if (self.min_max[current_node - 1].min_excess <= target_excess as isize && self.min_max[current_node - 1].max_excess >= target_excess as isize) || self.min_max[current_node - 1].entry_excess == target_excess as isize {
                     current_node -= 1;
                     break;
                 }
@@ -294,6 +300,10 @@ impl UDSTree {
 
             current_node = (current_node - 1) / 2; // move on to parent
         }
+
+        // if we found the root, the left-most sibling does not have the target excess, so the
+        // target excess is not in the vector: panic
+        debug_assert!(current_node > 0, "backward tree search reached root node, which is not possible");
 
         // downwards min-max tree search: take the right-most child of the target node
         // until we reach a leaf
@@ -305,7 +315,7 @@ impl UDSTree {
 
             // search children
             let right_child = current_node * 2 + 2;
-            if self.min_max[right_child].min_excess <= base_excess as isize || self.min_max[right_child].max_excess >= base_excess as isize {
+            if (self.min_max[right_child].min_excess <= target_excess as isize && self.min_max[right_child].max_excess >= target_excess as isize) || self.min_max[right_child].entry_excess == target_excess as isize {
                 current_node = right_child;
             } else {
                 current_node = right_child - 1;
@@ -319,7 +329,7 @@ impl UDSTree {
         // search block specified by the min-max tree
         self.bwd_search_within_block(
             (current_node - self.leaf_offset + 1) * MIN_MAX_BLOCK_SIZE - 1,
-            base_excess,
+            target_excess,
             self.min_max[current_node].total_excess,
         )
             .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
@@ -609,7 +619,8 @@ impl UDSTreeBuilder {
             MinMaxNode {
                 min_excess: isize::MAX,
                 max_excess: isize::MIN,
-                total_excess: self.tree.len() as isize
+                total_excess: self.tree.len() as isize,
+                entry_excess: isize::MAX,
             };
             (1 << (tree_depth + 1)) - 1
         ];
@@ -627,6 +638,8 @@ impl UDSTreeBuilder {
                     MIN_MAX_BLOCK_SIZE % 64 == 0,
                     "block cannot be retrieved as limbs"
                 );
+
+                let entry_excess = excess;
 
                 // TODO we should prune the unused leafs instead of aborting every single read here
                 // this is a hack to make sure we don't read past the end of the vector
@@ -673,11 +686,13 @@ impl UDSTreeBuilder {
                         min_excess: min,
                         max_excess: max,
                         total_excess: excess,
+                        entry_excess,
                     };
                 }
             });
 
         for depth in (0..tree_depth).rev() {
+            let mut last_entry_excess = 0; // excess before both children
             for i in ((1 << depth) - 1)..((2 << depth) - 1) {
                 let left = min_max_tree[2 * i + 1];
                 let right = min_max_tree[2 * i + 2];
@@ -685,7 +700,9 @@ impl UDSTreeBuilder {
                     min_excess: left.min_excess.min(right.min_excess),
                     max_excess: left.max_excess.max(right.max_excess),
                     total_excess: right.total_excess,
+                    entry_excess: last_entry_excess,
                 };
+                last_entry_excess = right.total_excess;
             }
         }
 
