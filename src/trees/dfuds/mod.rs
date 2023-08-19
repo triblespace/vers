@@ -455,6 +455,15 @@ impl UDSTree {
         self.bwd_search(position, -2)
     }
 
+    /// Return the degree of the given node. The degree is the number of children of the node.
+    /// The degree is calculated in constant time.
+    #[must_use]
+    pub fn degree(&self, node: usize) -> usize {
+        debug_assert!(node < self.tree.len(), "node index out of bounds");
+
+        self.tree.select1(self.tree.rank1(node)) - node
+    }
+
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
     /// nodes is always greater than zero.
     #[must_use]
@@ -536,6 +545,11 @@ impl UDSTreeBuilder {
     ///
     /// // attempting to visit another node will fail, because we already visited all nodes:
     /// assert!(builder.visit_node(0).is_err());
+    ///
+    /// // the root node is always at index 1. There is no node at index 0, and subsequent indices
+    /// // depend on the degree of nodes, so they are not necessarily equal to the number of times
+    /// // `visit_node` was called.
+    /// assert_eq!(root_node, 1);
     ///
     /// // The tree can be built from the builder. Attempting to build the tree before visiting
     /// // all nodes will fail.

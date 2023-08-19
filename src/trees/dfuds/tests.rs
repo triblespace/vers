@@ -249,3 +249,38 @@ fn test_randomized_find_open() {
         );
     }
 }
+
+#[test]
+fn test_degree() {
+    const TREE_SIZE: usize = 2000;
+
+    let mut tree = UDSTreeBuilder::with_capacity(TREE_SIZE);
+    let mut rng = rand::thread_rng();
+    let mut nodes = Vec::with_capacity(4);
+    let mut degrees = Vec::with_capacity(4);
+
+    // append 4 children to root
+    let root_node = tree
+        .visit_node(4)
+        .expect("failed to append children to root");
+
+    // generate random amount of children:
+    for _ in 0..4 {
+        let n = rng.gen_range(1..TREE_SIZE / 4);
+        degrees.push(n);
+        nodes.push(tree.visit_node(n).expect("failed to append children"));
+        for _ in 0..n {
+            tree.visit_node(0).expect("failed to close children");
+        }
+    }
+
+    let tree = tree.build().expect("failed to build tree");
+
+    // root
+    assert_eq!(tree.degree(root_node), 4);
+
+    // children
+    for i in 0..4 {
+        assert_eq!(tree.degree(nodes[i]), degrees[i]);
+    }
+}
