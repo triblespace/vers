@@ -489,6 +489,22 @@ impl UDSTree {
         }
     }
 
+    /// Return the size of the subtree defined by the given node. This includes the node itself, so
+    /// the size is always at least one.
+    pub fn subtree_size(&self, node: usize) -> usize {
+        debug_assert!(node < self.tree.len(), "node index out of bounds");
+
+        // alternative: rank0(findclose(enclose(node))) - rank0(p) + 2
+        (self.find_close(self.enclose(node)) - node) / 2 + 1
+    }
+
+    /// Return whether the given node is a leaf node.
+    pub fn is_leaf(&self, node: usize) -> bool {
+        debug_assert!(node < self.tree.len(), "node index out of bounds");
+
+        self.tree.get_unchecked(node) == CLOSE
+    }
+
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
     /// nodes is always greater than zero.
     #[must_use]

@@ -329,3 +329,43 @@ fn test_parent() {
     assert_eq!(tree.parent(last_child), child_zero);
     assert_eq!(tree.parent(880), root);
 }
+
+#[test]
+fn test_subtree_size() {
+    let mut tree = UDSTreeBuilder::with_capacity(1211);
+
+    let root = tree.visit_node(2).expect("failed to append children");
+
+    // subtree 1
+    let tree1 = tree.visit_node(4).expect("failed to append children");
+    tree.visit_node(100).expect("failed to append children");
+    for _ in 0..100 {
+        tree.visit_node(0).expect("failed to close children");
+    }
+
+    tree.visit_node(200).expect("failed to append children");
+    for _ in 0..200 {
+        tree.visit_node(0).expect("failed to close children");
+    }
+
+    tree.visit_node(400).expect("failed to append children");
+    for _ in 0..400 {
+        tree.visit_node(0).expect("failed to close children");
+    }
+
+    tree.visit_node(0).expect("failed to append children");
+
+    // subtree 2
+    let tree2 = tree.visit_node(1).expect("failed to append children");
+    tree.visit_node(1).expect("failed to append children");
+    tree.visit_node(1).expect("failed to append children");
+    tree.visit_node(1).expect("failed to append children");
+    tree.visit_node(500).expect("failed to append children");
+    tree.visit_remaining_nodes();
+
+    let tree = tree.build().expect("failed to build tree");
+
+    assert_eq!(tree.subtree_size(root), 1211);
+    assert_eq!(tree.subtree_size(tree1), 705);
+    assert_eq!(tree.subtree_size(tree2), 505);
+}
