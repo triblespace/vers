@@ -448,6 +448,13 @@ impl UDSTree {
         self.bwd_search(position, 0)
     }
 
+    /// Given the `position` of an open parenthesis, find the closest left parenthesis that
+    /// encloses the parenthesis at `position`.
+    #[must_use]
+    fn enclose(&self, position: usize) -> usize {
+        self.bwd_search(position, -2)
+    }
+
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
     /// nodes is always greater than zero.
     #[must_use]
