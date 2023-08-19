@@ -132,7 +132,11 @@ impl UDSTree {
             return result;
         }
 
-        let target_excess = if position == 0 { 0 } else { self.excess(position - 1) } + excess;
+        let target_excess = if position == 0 {
+            0
+        } else {
+            self.excess(position - 1)
+        } + excess;
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
@@ -228,7 +232,10 @@ impl UDSTree {
                 index += 16;
                 current_excess += get_total_excess(lookup) as isize;
             } else {
-                debug_assert!(current_excess != excess as isize, "excess reached before block start");
+                debug_assert!(
+                    current_excess != excess as isize,
+                    "excess reached before block start"
+                );
                 for _ in 0..16 {
                     current_excess += if self.tree.get_unchecked(index) == OPEN {
                         1
@@ -268,13 +275,21 @@ impl UDSTree {
     /// Find the maximum index smaller than `position` such that `index - 1` has the excess `excess` compared to
     /// `position`.
     #[must_use]
-    fn bwd_search(&self, position: usize, excess: usize) -> usize {
+    fn bwd_search(&self, position: usize, excess: isize) -> usize {
         // search initial block
-        if let Some(result) = self.bwd_search_within_block(position - 1, excess, if self.tree.get_unchecked(position) == CLOSE { 1 } else { -1 }) {
+        if let Some(result) = self.bwd_search_within_block(
+            position - 1,
+            excess,
+            if self.tree.get_unchecked(position) == CLOSE {
+                1
+            } else {
+                -1
+            },
+        ) {
             return result;
         }
 
-        let target_excess = self.excess(position) + excess;
+        let target_excess = self.excess(position) as isize + excess;
 
         // search tree
         let mut current_node = self.leaf_offset + position / MIN_MAX_BLOCK_SIZE;
@@ -292,7 +307,10 @@ impl UDSTree {
                 // if the target excess is either between the min and max excess of the sibling,
                 // or the excess before the sibling interval (entry_excess) is equal to target,
                 // we descend into the sibling, otherwise we continue searching upwards
-                if (self.min_max[current_node - 1].min_excess <= target_excess as isize && self.min_max[current_node - 1].max_excess >= target_excess as isize) || self.min_max[current_node - 1].entry_excess == target_excess as isize {
+                if (self.min_max[current_node - 1].min_excess <= target_excess
+                    && self.min_max[current_node - 1].max_excess >= target_excess)
+                    || self.min_max[current_node - 1].entry_excess == target_excess
+                {
                     current_node -= 1;
                     break;
                 }
@@ -303,7 +321,10 @@ impl UDSTree {
 
         // if we found the root, the left-most sibling does not have the target excess, so the
         // target excess is not in the vector: panic
-        debug_assert!(current_node > 0, "backward tree search reached root node, which is not possible");
+        debug_assert!(
+            current_node > 0,
+            "backward tree search reached root node, which is not possible"
+        );
 
         // downwards min-max tree search: take the right-most child of the target node
         // until we reach a leaf
@@ -315,7 +336,10 @@ impl UDSTree {
 
             // search children
             let right_child = current_node * 2 + 2;
-            if (self.min_max[right_child].min_excess <= target_excess as isize && self.min_max[right_child].max_excess >= target_excess as isize) || self.min_max[right_child].entry_excess == target_excess as isize {
+            if (self.min_max[right_child].min_excess <= target_excess
+                && self.min_max[right_child].max_excess >= target_excess)
+                || self.min_max[right_child].entry_excess == target_excess
+            {
                 current_node = right_child;
             } else {
                 current_node = right_child - 1;
@@ -332,7 +356,7 @@ impl UDSTree {
             target_excess,
             self.min_max[current_node].total_excess,
         )
-            .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
+        .expect("The min-max tree confirmed a matching excess, but the block does not contain it")
     }
 
     /// Search a block of bits within the bitvector for an index right of `position`
@@ -340,7 +364,7 @@ impl UDSTree {
     fn bwd_search_within_block(
         &self,
         position: usize,
-        excess: usize,
+        excess: isize,
         mut current_excess: isize,
     ) -> Option<usize> {
         let mut index = position;
@@ -357,7 +381,7 @@ impl UDSTree {
                 -1
             };
 
-            if -current_excess == excess as isize {
+            if current_excess == excess {
                 return Some(index);
             }
 
@@ -367,19 +391,20 @@ impl UDSTree {
         // skip limbs if they don't contain the target excess. Assume that the current excess is
         // higher than the target excess, because we are dealing with balanced parentheses
         // expressions.
-        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE && index >= 15
-        {
+        while index / MIN_MAX_BLOCK_SIZE == position / MIN_MAX_BLOCK_SIZE && index >= 15 {
             let lookup = EXCESS_LOOKUP[self.tree.get_bits_unchecked(index - 15, 16) as usize];
             let min_excess = get_minimum_excess(lookup) as isize;
             let max_excess = get_maximum_excess(lookup) as isize;
             let total_excess = get_total_excess(lookup) as isize;
 
-            if current_excess - total_excess + min_excess > excess as isize || current_excess - total_excess + max_excess < excess as isize {
+            if current_excess - total_excess + min_excess > excess
+                || current_excess - total_excess + max_excess < excess
+            {
                 current_excess -= total_excess;
 
                 // check the last member of the limb, because we won't check it in the loop
-                if -current_excess == excess as isize {
-                    return Some(index + 1 - 16)
+                if current_excess == excess {
+                    return Some(index + 1 - 16);
                 }
                 index -= 16;
             } else {
@@ -389,7 +414,7 @@ impl UDSTree {
                     } else {
                         -1
                     };
-                    if -current_excess == excess as isize {
+                    if current_excess == excess {
                         return Some(index);
                     }
                     index -= 1;

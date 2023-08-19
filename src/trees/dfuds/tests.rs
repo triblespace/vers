@@ -109,7 +109,7 @@ fn test_bwd_search_within_block() {
 
     assert_eq!(tree.bwd_search(9, 0), 0);
     assert_eq!(tree.bwd_search(8, 0), 7);
-    assert_eq!(tree.bwd_search(7, 2), 0);
+    assert_eq!(tree.bwd_search(7, -2), 0);
     assert_eq!(tree.bwd_search(6, 0), 1);
 }
 
@@ -157,6 +157,22 @@ fn test_bwd_search_within_full_block() {
             MIN_MAX_BLOCK_SIZE - i - 1
         );
     }
+}
+
+#[test]
+fn test_bwd_search_across_tree() {
+    let mut tree = UDSTreeBuilder::with_capacity(512);
+    tree.visit_node(500)
+        .expect("failed to visit node with 500 children");
+    tree.visit_remaining_nodes();
+    let tree = tree.build().expect("failed to build tree");
+
+    assert_eq!(tree.bwd_search(1001, 0), 0);
+    assert_eq!(tree.bwd_search(1000, 0), 1);
+    assert_eq!(tree.bwd_search(501, 0), 500);
+
+    // assert_eq!(tree.fwd_search(0, 2), 1);
+    // assert_eq!(tree.fwd_search(3, 3), 5);
 }
 
 fn generate_random_tree() -> UDSTree {
