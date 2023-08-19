@@ -464,6 +464,13 @@ impl UDSTree {
         self.tree.select1(self.tree.rank1(node)) - node
     }
 
+    /// Return the index of the `index`-th child of the node at `node`.
+    pub fn nth_child(&self, node: usize, index: usize) -> usize {
+        debug_assert!(node < self.tree.len(), "node index out of bounds");
+
+        self.find_close(self.tree.select1(self.tree.rank1(node)) - index - 1) + 1
+    }
+
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
     /// nodes is always greater than zero.
     #[must_use]
