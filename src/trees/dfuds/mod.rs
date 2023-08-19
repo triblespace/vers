@@ -498,13 +498,18 @@ impl UDSTreeBuilder {
 
     /// Appends children to the current node.
     /// The current node is the next node in depth-first order that has not been visited yet.
-    /// The children are appended in depth-first order (whatever that means for the client).
+    /// The appended children will be visited by subsequent calls in depth-first order (i.e. if one
+    /// child is appended, it is the next one that will be visited).
     /// The function must be called for each node in the tree once.
     /// The function must be called at least once, because each tree must have at least one root
     /// node.
     /// The function must not be called after all nodes have been visited, i.e. for each call to
     /// `visit_node`, a child must have been appended beforehand.
     /// Calling the function after all nodes have been visited will return an error.
+    /// The function returns the index of the node that was just visited.
+    /// The indices are strictly monotonically increasing, but do not necessarily coincide with the
+    /// number of times the function was called (i.e. there may be indices that don't correspond to
+    /// a node in the tree).
     ///
     /// # Parameters
     /// - `children`: The number of children of the current node.
@@ -522,7 +527,7 @@ impl UDSTreeBuilder {
     /// // We visit the nodes in depth first order (0, 1, 3, 4, 2, 5) and append the number of
     /// // children of each node:
     /// let mut builder = UDSTreeBuilder::with_capacity(6);
-    /// builder.visit_node(2)?; // root node (0)
+    /// let root_node = builder.visit_node(2)?; // root node (0)
     /// builder.visit_node(2)?; // node 1
     /// builder.visit_node(0)?; // node 3
     /// builder.visit_node(0)?; // node 4
@@ -537,10 +542,12 @@ impl UDSTreeBuilder {
     /// let tree = builder.build()?;
     /// # Ok::<(), String>(())
     /// ```
-    pub fn visit_node(&mut self, children: usize) -> Result<(), String> {
+    pub fn visit_node(&mut self, children: usize) -> Result<usize, String> {
         if self.balance == 0 {
             return Err("Tree is already complete".to_string());
         }
+
+        let node_index = self.tree.len();
 
         // append `children` zeros (open parentheses) and one one (closed parentheses)
         for _ in 0..children / 64 {
@@ -552,7 +559,7 @@ impl UDSTreeBuilder {
             .append_bits(CLOSE << (children % 64), (children % 64) + 1);
         self.balance += children % 64;
         self.balance -= 1;
-        Ok(())
+        Ok(node_index)
     }
 
     /// Visits the remaining nodes in the tree and closes them without appending any children.
