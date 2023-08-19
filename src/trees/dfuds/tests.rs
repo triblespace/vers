@@ -171,8 +171,8 @@ fn test_bwd_search_across_tree() {
     assert_eq!(tree.bwd_search(1000, 0), 1);
     assert_eq!(tree.bwd_search(501, 0), 500);
 
-    // assert_eq!(tree.fwd_search(0, 2), 1);
-    // assert_eq!(tree.fwd_search(3, 3), 5);
+    assert_eq!(tree.bwd_search(450, -2), 449);
+    assert_eq!(tree.bwd_search(3, -2), 2);
 }
 
 fn generate_random_tree() -> UDSTree {
