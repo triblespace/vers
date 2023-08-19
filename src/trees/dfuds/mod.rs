@@ -471,6 +471,24 @@ impl UDSTree {
         self.find_close(self.tree.select1(self.tree.rank1(node)) - index - 1) + 1
     }
 
+    /// Return the index of the parent of the node at `node`.
+    pub fn parent(&self, node: usize) -> usize {
+        debug_assert!(node < self.tree.len(), "node index out of bounds");
+
+        let node_number = self.tree.rank1(self.find_open(node - 1));
+
+        // since select is exclusive, we need to subtract one, and that breaks if we search the root
+        // node, so we special-case it
+        if node_number > 1 {
+            self.tree.select1(node_number - 1) + 1
+        } else {
+            // todo: if we inserted one extra closed parenthesis in the beginning, we could avoid
+            //  this branch. Figure out if that breaks anything. Maybe it works if we make the
+            //  parenthesis expression unbalanced
+            return 1;
+        }
+    }
+
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
     /// nodes is always greater than zero.
     #[must_use]

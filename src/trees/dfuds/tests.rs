@@ -306,3 +306,26 @@ fn test_nth_child() {
     assert_eq!(tree.nth_child(child_thirteen, 0), child_zero);
     assert_eq!(tree.nth_child(child_zero, 300), last_child);
 }
+
+#[test]
+fn test_parent() {
+    let mut tree = UDSTreeBuilder::with_capacity(882);
+
+    let root = tree.visit_node(20).expect("failed to append children");
+    for _ in 0..12 {
+        tree.visit_node(0).expect("failed to close children");
+    }
+    let child_thirteen = tree.visit_node(20).expect("failed to append children");
+    let child_zero = tree.visit_node(400).expect("failed to append children");
+    for _ in 0..300 {
+        tree.visit_node(0).expect("failed to close children");
+    }
+    let last_child = tree.visit_node(0).expect("failed to append children");
+    tree.visit_remaining_nodes();
+    let tree = tree.build().expect("failed to build tree");
+
+    assert_eq!(tree.parent(child_thirteen), root);
+    assert_eq!(tree.parent(child_zero), child_thirteen);
+    assert_eq!(tree.parent(last_child), child_zero);
+    assert_eq!(tree.parent(880), root);
+}
