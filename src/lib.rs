@@ -38,6 +38,7 @@ pub use bit_vec::fast_rs_vec::RsVec;
 pub use bit_vec::BitVec;
 pub use rmq::binary_rmq::BinaryRmq;
 pub use rmq::fast_rmq::FastRmq;
+pub use trees::dfuds::{UDSTree, UDSTreeBuilder};
 
 pub mod bit_vec;
 pub mod elias_fano;
