@@ -494,7 +494,6 @@ impl UDSTree {
     pub fn subtree_size(&self, node: usize) -> usize {
         debug_assert!(node < self.tree.len(), "node index out of bounds");
 
-        // alternative: rank0(findclose(enclose(node))) - rank0(p) + 2
         (self.find_close(self.enclose(node)) - node) / 2 + 1
     }
 
