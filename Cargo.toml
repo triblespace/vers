@@ -76,6 +76,10 @@ harness = false
 name = "dfuds_child_benchmark"
 harness = false
 
+[[bench]]
+name = "dfuds_parent_benchmark"
+harness = false
+
 [profile.bench]
 lto = true
 

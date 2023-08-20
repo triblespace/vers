@@ -6,7 +6,7 @@ use rand::prelude::ThreadRng;
 use rand::Rng;
 use vers_vecs::{BitVec, RsVec, UDSTree, UDSTreeBuilder};
 
-pub const SIZES: [usize; 12] = [
+pub const SIZES: [usize; 13] = [
     1 << 8,
     1 << 10,
     1 << 12,
@@ -19,6 +19,7 @@ pub const SIZES: [usize; 12] = [
     1 << 26,
     1 << 28,
     1 << 30,
+    1 << 32,
 ];
 
 pub fn construct_vers_vec(rng: &mut ThreadRng, len: usize) -> RsVec {
