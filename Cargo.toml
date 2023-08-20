@@ -89,3 +89,4 @@ lto = true
 
 [profile.release]
 lto = true
+debug = true
