@@ -68,7 +68,7 @@ pub fn construct_random_tree(
     number_children[0] = max_children;
 
     let mut index = 1;
-    let mut children = max_children;
+    let mut children = max_children + 1;
 
     while children < tree_size - max_children {
         let n = rng.gen_range(0..=max_children);
@@ -83,6 +83,7 @@ pub fn construct_random_tree(
             .visit_node(tree_size - children - 1)
             .expect("failed to visit node"),
     );
+    number_children[index] = tree_size - children - 1;
     builder.visit_remaining_nodes();
 
     (
