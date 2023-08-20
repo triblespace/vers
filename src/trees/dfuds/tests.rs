@@ -308,6 +308,37 @@ fn test_nth_child() {
 }
 
 #[test]
+fn test_nth_child_fully() {
+    const CHILDREN: [usize; 23] = [4, 2, 3, 0, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 2, 1, 0, 1, 0];
+    let mut nodes = Vec::with_capacity(CHILDREN.len());
+
+    let mut tree = UDSTreeBuilder::new();
+    for c in CHILDREN {
+        nodes.push(tree.visit_node(c as usize).expect("failed to append children"));
+    }
+    let tree = tree.build().expect("failed to build tree");
+
+    for (i, &c) in CHILDREN.iter().enumerate() {
+        if c > 0 {
+            for j in 0..c {
+                // simulate DFS to determine child index
+                let mut stack = j;
+                let mut cursor = i + 1;
+                while stack > 0 {
+                    stack += CHILDREN[cursor];
+                    cursor += 1;
+                    stack -= 1;
+                }
+
+                assert_eq!(tree.nth_child(nodes[i], j), nodes[cursor], "failed to retrieve {}. child of {}. node (idx: {}) (which has {} children)", j, i, nodes[i], c);
+
+            }
+        }
+    }
+
+}
+
+#[test]
 fn test_parent() {
     let mut tree = UDSTreeBuilder::with_capacity(882);
 
