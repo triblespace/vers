@@ -466,7 +466,7 @@ impl UDSTree {
 
     /// Return the index of the `index`-th child of the node at `node`.
     pub fn nth_child(&self, node: usize, index: usize) -> usize {
-        debug_assert!(node < self.tree.len(), "node index out of bounds");
+        debug_assert!(!self.is_leaf(node), "node is a leaf");
 
         self.find_close(self.tree.select1(self.tree.rank1(node)) - index - 1) + 1
     }
