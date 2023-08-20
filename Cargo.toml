@@ -80,6 +80,10 @@ harness = false
 name = "dfuds_parent_benchmark"
 harness = false
 
+[[bench]]
+name = "dfuds_subtree_benchmark"
+harness = false
+
 [profile.bench]
 lto = true
 
