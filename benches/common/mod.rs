@@ -43,18 +43,37 @@ pub fn fill_random_vec(rng: &mut ThreadRng, len: usize) -> Vec<u64> {
     vec
 }
 
+/// Construct a random dfuds tree and return its meta information as well
+///
+/// # Returns
+/// - The tree
+/// - the node indices of the nodes in the tree
+/// - the number of children of each node
 pub fn construct_random_tree(
     rng: &mut ThreadRng,
     tree_size: usize,
     max_children: usize,
-) -> (UDSTree, Vec<usize>) {
+) -> (UDSTree, Vec<usize>, Vec<usize>) {
     let mut builder = UDSTreeBuilder::with_capacity(tree_size);
     let mut nodes = Vec::with_capacity(tree_size);
-    let mut children = 0;
+    let mut number_children = vec![0; tree_size];
+
+    // attach max to root, so that the root has at least one child
+    nodes.push(
+        builder
+            .visit_node(max_children)
+            .expect("failed to visit node"),
+    );
+    number_children[0] = max_children;
+
+    let mut index = 1;
+    let mut children = max_children;
 
     while children < tree_size - max_children {
-        let n = rng.gen_range(1..=max_children);
+        let n = rng.gen_range(0..=max_children);
         nodes.push(builder.visit_node(n).expect("failed to visit node"));
+        number_children[index] = n;
+        index += 1;
         children += n;
     }
 
@@ -65,7 +84,11 @@ pub fn construct_random_tree(
     );
     builder.visit_remaining_nodes();
 
-    (builder.build().expect("failed to build tree"), nodes)
+    (
+        builder.build().expect("failed to build tree"),
+        nodes,
+        number_children,
+    )
 }
 
 pub fn plot_config() -> PlotConfiguration {
