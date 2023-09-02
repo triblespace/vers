@@ -1,5 +1,8 @@
 use crate::trees::dfuds::{UDSTree, UDSTreeBuilder, CLOSE, MIN_MAX_BLOCK_SIZE, OPEN};
 use crate::{BitVec, RsVec};
+use indextree::{Arena, NodeEdge, NodeId};
+use rand::distributions::Distribution;
+use rand::distributions::Uniform;
 use rand::Rng;
 
 #[test]
@@ -309,12 +312,17 @@ fn test_nth_child() {
 
 #[test]
 fn test_nth_child_fully() {
-    const CHILDREN: [usize; 23] = [4, 2, 3, 0, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 2, 1, 0, 1, 0];
+    const CHILDREN: [usize; 23] = [
+        4, 2, 3, 0, 0, 0, 6, 1, 0, 0, 0, 0, 0, 0, 1, 0, 1, 0, 2, 1, 0, 1, 0,
+    ];
     let mut nodes = Vec::with_capacity(CHILDREN.len());
 
     let mut tree = UDSTreeBuilder::new();
     for c in CHILDREN {
-        nodes.push(tree.visit_node(c as usize).expect("failed to append children"));
+        nodes.push(
+            tree.visit_node(c as usize)
+                .expect("failed to append children"),
+        );
     }
     let tree = tree.build().expect("failed to build tree");
 
@@ -330,12 +338,18 @@ fn test_nth_child_fully() {
                     stack -= 1;
                 }
 
-                assert_eq!(tree.nth_child(nodes[i], j), nodes[cursor], "failed to retrieve {}. child of {}. node (idx: {}) (which has {} children)", j, i, nodes[i], c);
-
+                assert_eq!(
+                    tree.nth_child(nodes[i], j),
+                    nodes[cursor],
+                    "failed to retrieve {}. child of {}. node (idx: {}) (which has {} children)",
+                    j,
+                    i,
+                    nodes[i],
+                    c
+                );
             }
         }
     }
-
 }
 
 #[test]
@@ -399,4 +413,115 @@ fn test_subtree_size() {
     assert_eq!(tree.subtree_size(root), 1211);
     assert_eq!(tree.subtree_size(tree1), 705);
     assert_eq!(tree.subtree_size(tree2), 505);
+}
+
+#[test]
+fn test_random_sub_tree() {
+    const L: usize = 512;
+    let mut rng = rand::thread_rng();
+
+    // generate prüfer sequence
+    let mut prufer = Vec::with_capacity(L - 2);
+    let sample = Uniform::new(0, L);
+    for _ in 0..L - 2 {
+        prufer.push(sample.sample(&mut rng));
+    }
+
+    // generate degree sequence
+    let mut degree_sequence = vec![1; L];
+    for i in &prufer {
+        degree_sequence[*i] += 1;
+    }
+
+    // generate tree
+    let mut arena = Arena::new();
+    let mut nodes = Vec::with_capacity(L);
+    for _ in 0..L {
+        nodes.push(arena.new_node(()));
+    }
+
+    for &i in &prufer {
+        for node in &nodes {
+            let j: usize = <NodeId as Into<usize>>::into(*node) - 1;
+            if degree_sequence[j] == 1 {
+                nodes[i].append(*node, &mut arena);
+                degree_sequence[i] -= 1;
+                degree_sequence[j] -= 1;
+                break;
+            }
+        }
+    }
+
+    // find remaining degree 1 nodes:
+    let remaining = degree_sequence
+        .iter()
+        .enumerate()
+        .filter(|(_, &e)| e > 0)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        remaining.len(),
+        2,
+        "expected 2 remaining nodes, found {}",
+        remaining.len()
+    );
+
+    // connect remaining nodes
+    nodes[remaining[0].0].append(nodes[remaining[1].0], &mut arena);
+
+    let root = nodes[0].ancestors(&arena).last().unwrap();
+
+    let mut builder = UDSTreeBuilder::with_capacity(L);
+    let mut nodes = Vec::with_capacity(L);
+    let mut node_ids = Vec::with_capacity(L);
+
+    let mut index = 0;
+
+    root.traverse(&arena).for_each(|edge| match edge {
+        NodeEdge::Start(node_id) => {
+            let children = node_id.children(&arena).count();
+            let node = builder.visit_node(children).expect("failed to visit node");
+            nodes.push(node);
+            node_ids.push(node_id);
+            index += 1;
+        }
+        NodeEdge::End(_) => {}
+    });
+
+    let dfuds = builder.build().expect("failed to build tree");
+
+    for i in 0..L {
+        let dfuds_subtree = dfuds.subtree_size(nodes[i]);
+        let arena_subtree = node_ids[i]
+            .traverse(&arena)
+            .filter(|e| matches!(e, NodeEdge::Start(_)))
+            .count();
+        assert_eq!(
+            dfuds_subtree,
+            arena_subtree,
+            "subtree sizes do not match. subtree:\n{}",
+            print_subtree(&node_ids[i], &arena)
+        );
+    }
+}
+
+fn print_subtree(node: &NodeId, arena: &Arena<()>) -> String {
+    let mut s = String::new();
+    let mut indent = String::new();
+    let root = node.ancestors(arena).last().unwrap();
+
+    root.traverse(arena).for_each(|edge| match edge {
+        NodeEdge::Start(node_id) => {
+            s.push_str(&format!("{}|-{}", indent, node_id.children(arena).count()));
+            if node_id == *node {
+                s.push_str(" (*)");
+            }
+            s.push_str("\n");
+            indent.push_str("  ")
+        }
+        NodeEdge::End(_) => {
+            indent.pop();
+            indent.pop();
+        }
+    });
+    s
 }
