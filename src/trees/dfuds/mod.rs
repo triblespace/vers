@@ -122,6 +122,7 @@ impl UDSTree {
     /// Find the minimum index greater than `position` that has the excess `excess` compared to
     /// `position` - 1. This query is only intended for open parenthesis, where the excess immediately
     /// left of the position is lower. The query is not defined for closed parenthesis.
+    // todo methods that rely on fwd_search require exponential time, bwd_search does not. Why?
     #[must_use]
     fn fwd_search(&self, position: usize, excess: usize) -> usize {
         debug_assert!(

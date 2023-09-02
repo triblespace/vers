@@ -1,11 +1,11 @@
 #![feature(core_intrinsics)]
 
-use std::intrinsics::black_box;
+use rand::distributions::Distribution;
 use rand::distributions::Uniform;
 use rand::prelude::ThreadRng;
 use rand::Rng;
+use std::intrinsics::black_box;
 use vers_vecs::{UDSTree, UDSTreeBuilder};
-use rand::distributions::Distribution;
 
 fn main() {
     let mut rng = rand::thread_rng();

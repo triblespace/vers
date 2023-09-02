@@ -8,8 +8,8 @@ fn bench_parent(b: &mut Criterion) {
     let mut group = b.benchmark_group("DFUDS Parent Benchmark: Randomized Input");
     group.plot_config(common::plot_config());
 
-    for l in common::SIZES {
-        let (tree, nodes, _) = common::construct_random_tree(&mut rng, l, 100);
+    for l in common::LIMITED_SIZES {
+        let (tree, nodes, _) = common::construct_random_tree(&mut rng, l);
 
         let sample = Uniform::new(1, nodes.len());
         group.bench_with_input(BenchmarkId::new("parent", l), &l, |b, _| {
