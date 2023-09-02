@@ -385,6 +385,10 @@ impl UDSTree {
                 return Some(index);
             }
 
+            if index % MIN_MAX_BLOCK_SIZE == 0 {
+                return None;
+            }
+
             index -= 1;
         }
 
