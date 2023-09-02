@@ -81,6 +81,8 @@ const fn get_total_excess(encoding: u16) -> i16 {
 
 /// A node in the min-max tree that supports forward and backward search.
 // todo since we use absolute excess instead of interval excess, we can use usize instead of isize
+// todo using relative excess would also allow us to use u8 instead of usize, but only for leafs,
+//  how to solve that?
 #[derive(Clone, Copy, Debug, Default)]
 struct MinMaxNode {
     min_excess: isize,
@@ -158,6 +160,11 @@ impl UDSTree {
 
             current_node = (current_node - 1) / 2; // move on to parent
         }
+
+        debug_assert!(
+            current_node > 0,
+            "forward tree search reached root node, which is not possible"
+        );
 
         // downwards min-max tree search: take the left-most child of the target node
         // until we reach a leaf
@@ -757,9 +764,13 @@ impl UDSTreeBuilder {
 
                     for j in 0..MIN_MAX_BLOCK_SIZE / 64 {
                         let mut length = 64;
-                        if i * MIN_MAX_BLOCK_SIZE + (j + 1) * 64 >= self.tree.len() {
+                        if i * MIN_MAX_BLOCK_SIZE + (j + 1) * 64 > self.tree.len() {
                             length = self.tree.len() % 64;
                         };
+
+                        if length == 0 {
+                            break;
+                        }
 
                         let limb = self
                             .tree
@@ -791,6 +802,8 @@ impl UDSTreeBuilder {
                     };
                 }
             });
+
+        assert_eq!(excess, 0, "tree is not balanced");
 
         for depth in (0..tree_depth).rev() {
             let mut last_entry_excess = 0; // excess before both children
