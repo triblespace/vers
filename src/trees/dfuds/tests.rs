@@ -525,3 +525,33 @@ fn print_subtree(node: &NodeId, arena: &Arena<()>) -> String {
     });
     s
 }
+
+#[test]
+fn test_is_ancestor() {
+    let mut tree = UDSTreeBuilder::with_capacity(20);
+    let root = tree.visit_node(2).expect("failed to append children");
+    let left_parent = tree.visit_node(2).expect("failed to append children");
+    let left_left_child = tree.visit_node(0).expect("failed to append children");
+    let left_right_child = tree.visit_node(0).expect("failed to append children");
+    let right_child = tree.visit_node(0).expect("failed to append children");
+    let tree = tree.build().expect("failed to build tree");
+
+    assert!(tree.is_ancestor(root, root));
+    assert!(tree.is_ancestor(left_parent, left_parent));
+    assert!(tree.is_ancestor(right_child, right_child));
+
+    assert!(tree.is_ancestor(root, left_parent));
+    assert!(tree.is_ancestor(root, left_left_child));
+    assert!(tree.is_ancestor(root, left_right_child));
+    assert!(tree.is_ancestor(root, right_child));
+
+    assert!(tree.is_ancestor(left_parent, left_left_child));
+    assert!(tree.is_ancestor(left_parent, left_right_child));
+
+    assert!(!tree.is_ancestor(left_left_child, left_parent));
+    assert!(!tree.is_ancestor(left_right_child, left_parent));
+    assert!(!tree.is_ancestor(left_left_child, left_right_child));
+    assert!(!tree.is_ancestor(left_right_child, left_left_child));
+    assert!(!tree.is_ancestor(left_left_child, right_child));
+    assert!(!tree.is_ancestor(right_child, left_parent));
+}

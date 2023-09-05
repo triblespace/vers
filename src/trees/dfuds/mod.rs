@@ -438,6 +438,17 @@ impl UDSTree {
         return None;
     }
 
+    /// Find a matching closing parenthesis for the parenthesis at `position`, or `position` if
+    /// the parenthesis at `position` is a closed parenthesis.
+    /// Returns the index of the closing parenthesis.
+    #[must_use]
+    fn find_close_or_self(&self, position: usize) -> usize {
+        if self.tree.get_unchecked(position) == CLOSE {
+            return position;
+        }
+        self.find_close(position)
+    }
+
     /// Find a matching closing parenthesis for the parenthesis at `position`. Assumes that the
     /// parenthesis at `position` is an open parenthesis. The query is not defined for closed
     /// parenthesis.
@@ -518,6 +529,12 @@ impl UDSTree {
         debug_assert!(node < self.tree.len(), "node index out of bounds");
 
         self.tree.get_unchecked(node) == CLOSE
+    }
+
+    /// Returns true, if `query` is an ancestor node of `node`. Returns true if `query` and `node`
+    /// are the same node. Returns false if `query` is not an ancestor of `node`.
+    pub fn is_ancestor(&self, query: usize, node: usize) -> bool {
+        return query <= node && self.find_close_or_self(node) <= self.find_close_or_self(query);
     }
 
     /// Returns the number of nodes in the tree. Since an empty tree is not allowed, the number of
