@@ -15,15 +15,19 @@ exclude = [
 
 [dependencies]
 serde = { version = "1.0", optional = true, features = ["derive"] }
+rkyv = { version = "0.7.44", optional = true, default-features = false, features = ["std"] }
+bytecheck = { version = "0.7.0", optional = true }
 
 [dev-dependencies]
 # benchmarking
 criterion = { version = "0.5.1", features = ["html_reports"] }
 rand = { version = "0.8", features = ["alloc"] }
+rkyv = { version = "0.7.44", default-features = true }
 
 [features]
 simd = []
 docsrs = [] # special feature for docs.rs to enable doc_auto_cfg on nightly
+validation = ["bytecheck", "rkyv", "rkyv/validation"]
 
 [[bench]]
 name = "rank"
