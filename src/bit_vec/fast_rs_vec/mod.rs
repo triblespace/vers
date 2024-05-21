@@ -2,7 +2,9 @@
 //! constant-time, select on average in constant-time, with a logarithmic worst case.
 
 use std::mem::size_of;
+use std::ops::{Range, RangeTo};
 
+use crate::bit_vec::fast_rs_vec::sealed::SealedRankSelect;
 #[cfg(all(
     feature = "simd",
     target_arch = "x86_64",
@@ -13,6 +15,7 @@ use std::mem::size_of;
 ))]
 pub use bitset::*;
 pub use iter::*;
+pub use select::*;
 
 use crate::util::impl_iterator;
 use crate::BitVec;
@@ -66,6 +69,251 @@ struct SelectSuperBlockDescriptor {
     index_1: usize,
 }
 
+mod sealed {
+    use std::ops::{Range, RangeTo};
+
+    pub trait SealedRankSelect {
+        /// Return the amount of zeros stored in the super block at the given index.
+        fn get_super_block_zeros(&self, idx: usize) -> usize;
+
+        /// Return the length of the super block support vector.
+        fn get_super_block_count(&self) -> usize;
+
+        /// Return the amount of zeros stored in the block at the given index.
+        fn get_block_zeros(&self, idx: usize) -> u16;
+
+        /// Return the length of the block support vector.
+        fn get_block_count(&self) -> usize;
+
+        /// Return the data word at the given index.
+        fn get_data_word(&self, idx: usize) -> u64;
+
+        /// Return an iterator over the data words in the given range.
+        fn get_data_range(&self, range: Range<usize>) -> impl Iterator<Item = &u64> + '_;
+
+        /// Return an iterator over the data words in the given range.
+        fn get_data_range_to(&self, range_from: RangeTo<usize>) -> impl Iterator<Item = &u64> + '_;
+
+        /// Return the select block contents at the given index (index_0, index_1).
+        fn get_select_block(&self, idx: usize) -> (usize, usize);
+
+        /// Return the length of the vector, i.e. the number of bits it contains.
+        fn bit_len(&self) -> usize;
+    }
+}
+
+pub trait RankSupport: SealedRankSelect {
+    /// Return the total number of 0-bits in the bit-vector
+    fn total_rank0(&self) -> usize;
+
+    /// Return the total number of 1-bits in the bit-vector
+    fn total_rank1(&self) -> usize;
+
+    /// Return the 0-rank of the bit at the given position. The 0-rank is the number of
+    /// 0-bits in the vector up to but excluding the bit at the given position. Calling this
+    /// function with an index larger than the length of the bit-vector will report the total
+    /// number of 0-bits in the bit-vector.
+    ///
+    /// # Parameters
+    /// - `pos`: The position of the bit to return the rank of.
+    #[must_use]
+    fn rank0(&self, pos: usize) -> usize {
+        self.rank(true, pos)
+    }
+
+    /// Return the 1-rank of the bit at the given position. The 1-rank is the number of
+    /// 1-bits in the vector up to but excluding the bit at the given position. Calling this
+    /// function with an index larger than the length of the bit-vector will report the total
+    /// number of 1-bits in the bit-vector.
+    ///
+    /// # Parameters
+    /// - `pos`: The position of the bit to return the rank of.
+    #[must_use]
+    fn rank1(&self, pos: usize) -> usize {
+        self.rank(false, pos)
+    }
+
+    // I measured 5-10% improvement with this. I don't know why it's not inlined by default, the
+    // branch elimination profits alone should make it worth it.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn rank(&self, zero: bool, pos: usize) -> usize {
+        #[allow(clippy::collapsible_else_if)]
+        // readability and more obvious where dead branch elimination happens
+        if zero {
+            if pos >= self.len() {
+                return self.total_rank0();
+            }
+        } else {
+            if pos >= self.len() {
+                return self.total_rank1();
+            }
+        }
+
+        let index = pos / WORD_SIZE;
+        let block_index = pos / BLOCK_SIZE;
+        let super_block_index = pos / SUPER_BLOCK_SIZE;
+        let mut rank = 0;
+
+        // at first add the number of zeros/ones before the current super block
+        rank += if zero {
+            self.get_super_block_zeros(super_block_index)
+        } else {
+            (super_block_index * SUPER_BLOCK_SIZE) - self.get_super_block_zeros(super_block_index)
+        };
+
+        // then add the number of zeros/ones before the current block
+        rank += if zero {
+            self.get_block_zeros(block_index) as usize
+        } else {
+            ((block_index % (SUPER_BLOCK_SIZE / BLOCK_SIZE)) * BLOCK_SIZE)
+                - self.get_block_zeros(block_index) as usize
+        };
+
+        // naive popcount of blocks
+        for &i in self.get_data_range((block_index * BLOCK_SIZE) / WORD_SIZE..index) {
+            rank += if zero {
+                i.count_zeros() as usize
+            } else {
+                i.count_ones() as usize
+            };
+        }
+
+        rank += if zero {
+            (!self.get_data_word(index) & ((1 << (pos % WORD_SIZE)) - 1)).count_ones() as usize
+        } else {
+            (self.get_data_word(index) & ((1 << (pos % WORD_SIZE)) - 1)).count_ones() as usize
+        };
+
+        rank
+    }
+
+    /// Return the length of the vector, i.e. the number of bits it contains.
+    #[must_use]
+    fn len(&self) -> usize {
+        self.bit_len()
+    }
+
+    /// Return whether the vector is empty.
+    #[must_use]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return the bit at the given position. The bit takes the least significant
+    /// bit of the returned u64 word.
+    /// If the position is larger than the length of the vector, `None` is returned.
+    #[must_use]
+    fn get(&self, pos: usize) -> Option<u64> {
+        if pos >= self.len() {
+            None
+        } else {
+            Some(self.get_unchecked(pos))
+        }
+    }
+
+    /// Return the bit at the given position. The bit takes the least significant
+    /// bit of the returned u64 word.
+    ///
+    /// # Panics
+    /// This function may panic if `pos >= self.len()` (alternatively, it may return garbage).
+    #[must_use]
+    fn get_unchecked(&self, pos: usize) -> u64 {
+        (self.get_data_word(pos / WORD_SIZE) >> (pos % WORD_SIZE)) & 1
+    }
+
+    /// Return multiple bits at the given position. The number of bits to return is given by `len`.
+    /// At most 64 bits can be returned.
+    /// If the position at the end of the query is larger than the length of the vector,
+    /// None is returned (even if the query partially overlaps with the vector).
+    /// If the length of the query is larger than 64, None is returned.
+    #[must_use]
+    fn get_bits(&self, pos: usize, len: usize) -> Option<u64> {
+        if len > WORD_SIZE {
+            return None;
+        }
+        if pos + len > self.bit_len() {
+            None
+        } else {
+            Some(self.get_bits_unchecked(pos, len))
+        }
+    }
+
+    /// Return multiple bits at the given position. The number of bits to return is given by `len`.
+    /// At most 64 bits can be returned.
+    ///
+    /// This function is always inlined, because it gains a lot from loop optimization and
+    /// can utilize the processor pre-fetcher better if it is.
+    ///
+    /// # Errors
+    /// If the length of the query is larger than 64, unpredictable data will be returned.
+    /// Use [`get_bits`] to properly handle this case with an `Option`.
+    ///
+    /// # Panics
+    /// If the position or interval is larger than the length of the vector,
+    /// the function will either return unpredictable data, or panic.
+    ///
+    /// [`get_bits`]: #method.get_bits
+    #[must_use]
+    #[allow(clippy::comparison_chain)] // rust-clippy #5354
+    fn get_bits_unchecked(&self, pos: usize, len: usize) -> u64 {
+        debug_assert!(len <= WORD_SIZE);
+        let partial_word = self.get_data_word(pos / WORD_SIZE) >> (pos % WORD_SIZE);
+        if pos % WORD_SIZE + len == WORD_SIZE {
+            partial_word
+        } else if pos % WORD_SIZE + len < WORD_SIZE {
+            partial_word & ((1 << (len % WORD_SIZE)) - 1)
+        } else {
+            (partial_word
+                | (self.get_data_word(pos / WORD_SIZE + 1) << (WORD_SIZE - pos % WORD_SIZE)))
+                & ((1 << (len % WORD_SIZE)) - 1)
+        }
+    }
+
+    /// Check if two `RsVec`s are equal. This compares limb by limb. This is usually faster than a
+    /// [`sparse_equals`] call for small vectors.
+    ///
+    /// # Parameters
+    /// - `other`: The other `RsVec` to compare to.
+    ///
+    /// # Returns
+    /// `true` if the vectors' contents are equal, `false` otherwise.
+    ///
+    /// [`sparse_equals`]: RsVec::sparse_equals
+    fn full_equals(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+
+        if self.total_rank0() != other.total_rank0() || self.total_rank1() != other.total_rank1() {
+            return false;
+        }
+
+        if self
+            .get_data_range_to(..self.bit_len() / 64)
+            .zip(other.get_data_range_to(..other.bit_len() / 64))
+            .any(|(a, b)| a != b)
+        {
+            return false;
+        }
+
+        // if last incomplete block exists, test it without junk data
+        if self.bit_len() % 64 > 0
+            && self.get_data_word(self.bit_len() / 64) & ((1 << (self.bit_len() % 64)) - 1)
+                != other.get_data_word(self.bit_len() / 64) & ((1 << (other.bit_len() % 64)) - 1)
+        {
+            return false;
+        }
+
+        true
+    }
+
+    /// Returns the number of bytes used on the heap for this vector. This does not include
+    /// allocated space that is not used (e.g. by the allocation behavior of `Vec`).
+    #[must_use]
+    fn heap_size(&self) -> usize;
+}
+
 /// A bitvector that supports constant-time rank and select queries and is optimized for fast queries.
 /// The bitvector is stored as a vector of `u64`s. The bit-vector stores meta-data for constant-time
 /// rank and select queries, which takes sub-linear additional space. The space overhead is
@@ -73,7 +321,7 @@ struct SelectSuperBlockDescriptor {
 ///
 /// # Example
 /// ```rust
-/// use vers_vecs::{BitVec, RsVec};
+/// use vers_vecs::{BitVec, RsVec, RankSupport, SelectSupport};
 ///
 /// let mut bit_vec = BitVec::new();
 /// bit_vec.append_word(u64::MAX);
@@ -223,246 +471,59 @@ impl RsVec {
                 - (total_zeros + current_zeros - ((WORD_SIZE - (vec.len % WORD_SIZE)) % WORD_SIZE)),
         }
     }
+}
 
-    /// Return the 0-rank of the bit at the given position. The 0-rank is the number of
-    /// 0-bits in the vector up to but excluding the bit at the given position. Calling this
-    /// function with an index larger than the length of the bit-vector will report the total
-    /// number of 0-bits in the bit-vector.
-    ///
-    /// # Parameters
-    /// - `pos`: The position of the bit to return the rank of.
-    #[must_use]
-    pub fn rank0(&self, pos: usize) -> usize {
-        self.rank(true, pos)
+impl SealedRankSelect for RsVec {
+    fn get_super_block_zeros(&self, idx: usize) -> usize {
+        self.super_blocks[idx].zeros
     }
 
-    /// Return the 1-rank of the bit at the given position. The 1-rank is the number of
-    /// 1-bits in the vector up to but excluding the bit at the given position. Calling this
-    /// function with an index larger than the length of the bit-vector will report the total
-    /// number of 1-bits in the bit-vector.
-    ///
-    /// # Parameters
-    /// - `pos`: The position of the bit to return the rank of.
-    #[must_use]
-    pub fn rank1(&self, pos: usize) -> usize {
-        self.rank(false, pos)
+    fn get_super_block_count(&self) -> usize {
+        self.super_blocks.len()
     }
 
-    // I measured 5-10% improvement with this. I don't know why it's not inlined by default, the
-    // branch elimination profits alone should make it worth it.
-    #[allow(clippy::inline_always)]
-    #[inline(always)]
-    fn rank(&self, zero: bool, pos: usize) -> usize {
-        #[allow(clippy::collapsible_else_if)]
-        // readability and more obvious where dead branch elimination happens
-        if zero {
-            if pos >= self.len() {
-                return self.rank0;
-            }
-        } else {
-            if pos >= self.len() {
-                return self.rank1;
-            }
-        }
-
-        let index = pos / WORD_SIZE;
-        let block_index = pos / BLOCK_SIZE;
-        let super_block_index = pos / SUPER_BLOCK_SIZE;
-        let mut rank = 0;
-
-        // at first add the number of zeros/ones before the current super block
-        rank += if zero {
-            self.super_blocks[super_block_index].zeros
-        } else {
-            (super_block_index * SUPER_BLOCK_SIZE) - self.super_blocks[super_block_index].zeros
-        };
-
-        // then add the number of zeros/ones before the current block
-        rank += if zero {
-            self.blocks[block_index].zeros as usize
-        } else {
-            ((block_index % (SUPER_BLOCK_SIZE / BLOCK_SIZE)) * BLOCK_SIZE)
-                - self.blocks[block_index].zeros as usize
-        };
-
-        // naive popcount of blocks
-        for &i in &self.data[(block_index * BLOCK_SIZE) / WORD_SIZE..index] {
-            rank += if zero {
-                i.count_zeros() as usize
-            } else {
-                i.count_ones() as usize
-            };
-        }
-
-        rank += if zero {
-            (!self.data[index] & ((1 << (pos % WORD_SIZE)) - 1)).count_ones() as usize
-        } else {
-            (self.data[index] & ((1 << (pos % WORD_SIZE)) - 1)).count_ones() as usize
-        };
-
-        rank
+    fn get_block_zeros(&self, idx: usize) -> u16 {
+        self.blocks[idx].zeros
     }
 
-    /// Return the length of the vector, i.e. the number of bits it contains.
-    #[must_use]
-    pub fn len(&self) -> usize {
+    fn get_block_count(&self) -> usize {
+        self.blocks.len()
+    }
+
+    fn get_data_word(&self, idx: usize) -> u64 {
+        self.data[idx]
+    }
+
+    fn get_data_range(&self, range: Range<usize>) -> impl Iterator<Item = &u64> + '_ {
+        self.data[range].iter()
+    }
+
+    fn get_data_range_to(&self, range_from: RangeTo<usize>) -> impl Iterator<Item = &u64> + '_ {
+        self.data[range_from].iter()
+    }
+
+    fn get_select_block(&self, idx: usize) -> (usize, usize) {
+        (
+            self.select_blocks[idx].index_0,
+            self.select_blocks[idx].index_1,
+        )
+    }
+
+    fn bit_len(&self) -> usize {
         self.len
     }
+}
 
-    /// Return whether the vector is empty.
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+impl RankSupport for RsVec {
+    fn total_rank0(&self) -> usize {
+        self.rank0
     }
 
-    /// Return the bit at the given position. The bit takes the least significant
-    /// bit of the returned u64 word.
-    /// If the position is larger than the length of the vector, `None` is returned.
-    #[must_use]
-    pub fn get(&self, pos: usize) -> Option<u64> {
-        if pos >= self.len() {
-            None
-        } else {
-            Some(self.get_unchecked(pos))
-        }
+    fn total_rank1(&self) -> usize {
+        self.rank1
     }
 
-    /// Return the bit at the given position. The bit takes the least significant
-    /// bit of the returned u64 word.
-    ///
-    /// # Panics
-    /// This function may panic if `pos >= self.len()` (alternatively, it may return garbage).
-    #[must_use]
-    pub fn get_unchecked(&self, pos: usize) -> u64 {
-        (self.data[pos / WORD_SIZE] >> (pos % WORD_SIZE)) & 1
-    }
-
-    /// Return multiple bits at the given position. The number of bits to return is given by `len`.
-    /// At most 64 bits can be returned.
-    /// If the position at the end of the query is larger than the length of the vector,
-    /// None is returned (even if the query partially overlaps with the vector).
-    /// If the length of the query is larger than 64, None is returned.
-    #[must_use]
-    pub fn get_bits(&self, pos: usize, len: usize) -> Option<u64> {
-        if len > WORD_SIZE {
-            return None;
-        }
-        if pos + len > self.len {
-            None
-        } else {
-            Some(self.get_bits_unchecked(pos, len))
-        }
-    }
-
-    /// Return multiple bits at the given position. The number of bits to return is given by `len`.
-    /// At most 64 bits can be returned.
-    ///
-    /// This function is always inlined, because it gains a lot from loop optimization and
-    /// can utilize the processor pre-fetcher better if it is.
-    ///
-    /// # Errors
-    /// If the length of the query is larger than 64, unpredictable data will be returned.
-    /// Use [`get_bits`] to properly handle this case with an `Option`.
-    ///
-    /// # Panics
-    /// If the position or interval is larger than the length of the vector,
-    /// the function will either return unpredictable data, or panic.
-    ///
-    /// [`get_bits`]: #method.get_bits
-    #[must_use]
-    #[allow(clippy::comparison_chain)] // rust-clippy #5354
-    pub fn get_bits_unchecked(&self, pos: usize, len: usize) -> u64 {
-        debug_assert!(len <= WORD_SIZE);
-        let partial_word = self.data[pos / WORD_SIZE] >> (pos % WORD_SIZE);
-        if pos % WORD_SIZE + len == WORD_SIZE {
-            partial_word
-        } else if pos % WORD_SIZE + len < WORD_SIZE {
-            partial_word & ((1 << (len % WORD_SIZE)) - 1)
-        } else {
-            (partial_word | (self.data[pos / WORD_SIZE + 1] << (WORD_SIZE - pos % WORD_SIZE)))
-                & ((1 << (len % WORD_SIZE)) - 1)
-        }
-    }
-
-    /// Check if two `RsVec`s are equal. For sparse vectors (either sparsely filled with 1-bits or
-    /// 0-bits), this is faster than comparing the vectors bit by bit.
-    /// Choose the value of `ZERO` depending on which bits are more sparse.
-    ///
-    /// This method is faster than [`full_equals`] for sparse vectors beginning at roughly 1
-    /// million bits. Above 4 million bits, this method becomes faster than full equality in general.
-    ///
-    /// # Parameters
-    /// - `other`: The other `RsVec` to compare to.
-    /// - `ZERO`: Whether to compare the sparse 0-bits (true) or the sparse 1-bits (false).
-    ///
-    /// # Returns
-    /// `true` if the vectors' contents are equal, `false` otherwise.
-    ///
-    /// [`full_equals`]: RsVec::full_equals
-    pub fn sparse_equals<const ZERO: bool>(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-
-        if self.rank0 != other.rank0 || self.rank1 != other.rank1 {
-            return false;
-        }
-
-        let iter: SelectIter<ZERO> = self.select_iter();
-
-        for (rank, bit_index) in iter.enumerate() {
-            // since rank is inlined, we get dead code elimination depending on ZERO
-            if (other.get_unchecked(bit_index) == 0) != ZERO || other.rank(ZERO, bit_index) != rank
-            {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    /// Check if two `RsVec`s are equal. This compares limb by limb. This is usually faster than a
-    /// [`sparse_equals`] call for small vectors.
-    ///
-    /// # Parameters
-    /// - `other`: The other `RsVec` to compare to.
-    ///
-    /// # Returns
-    /// `true` if the vectors' contents are equal, `false` otherwise.
-    ///
-    /// [`sparse_equals`]: RsVec::sparse_equals
-    pub fn full_equals(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-
-        if self.rank0 != other.rank0 || self.rank1 != other.rank1 {
-            return false;
-        }
-
-        if self.data[..self.len / 64]
-            .iter()
-            .zip(other.data[..other.len / 64].iter())
-            .any(|(a, b)| a != b)
-        {
-            return false;
-        }
-
-        // if last incomplete block exists, test it without junk data
-        if self.len % 64 > 0
-            && self.data[self.len / 64] & ((1 << (self.len % 64)) - 1)
-                != other.data[self.len / 64] & ((1 << (other.len % 64)) - 1)
-        {
-            return false;
-        }
-
-        true
-    }
-
-    /// Returns the number of bytes used on the heap for this vector. This does not include
-    /// allocated space that is not used (e.g. by the allocation behavior of `Vec`).
-    #[must_use]
-    pub fn heap_size(&self) -> usize {
+    fn heap_size(&self) -> usize {
         self.data.len() * size_of::<u64>()
             + self.blocks.len() * size_of::<BlockDescriptor>()
             + self.super_blocks.len() * size_of::<SuperBlockDescriptor>()
@@ -489,7 +550,7 @@ impl PartialEq for RsVec {
     /// [`full_equals`]: RsVec::full_equals
     fn eq(&self, other: &Self) -> bool {
         if self.len > 4000000 {
-            if self.rank1 > self.rank0 {
+            if self.total_rank1() > self.total_rank0() {
                 self.sparse_equals::<true>(other)
             } else {
                 self.sparse_equals::<false>(other)

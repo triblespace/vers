@@ -3,6 +3,7 @@
 //! It only exists with the `simd` feature enabled, and since it is slower for sparse vectors,
 //! it is not used as a replacement for the `iter1`/`iter0` methods.
 
+use crate::bit_vec::fast_rs_vec::RankSupport;
 use crate::RsVec;
 use std::mem::size_of;
 

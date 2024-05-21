@@ -1,4 +1,5 @@
 use super::*;
+use crate::bit_vec::fast_rs_vec::select::SelectSupport;
 use rand::distributions::{Distribution, Uniform};
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};

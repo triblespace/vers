@@ -8,6 +8,7 @@
 //! Beside compression, it also offers expected constant-time predecessor and successor queries
 //! (compare to expected logarithmic time for sorted sequences with binary search or search trees).
 
+use crate::bit_vec::fast_rs_vec::{RankSupport, SelectSupport};
 use crate::util::impl_iterator;
 use crate::BitVec;
 use crate::RsVec;
