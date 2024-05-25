@@ -3,11 +3,23 @@ use crate::bit_vec::fast_rs_vec::{BLOCK_SIZE, SELECT_BLOCK_SIZE, SUPER_BLOCK_SIZ
 use crate::bit_vec::WORD_SIZE;
 use crate::util::pdep::Pdep;
 use crate::util::unroll;
-use crate::RsVec;
+use crate::{RankSupport, RsVec, SelectSupport};
 use std::iter::FusedIterator;
 use std::num::NonZeroUsize;
 
-pub trait RsIterSupport {
+/// Defines the [`select_iter`], [`iter0`], and [`iter1`] methods for rank and select bitvector structs.
+/// It further defines the [`sparse_equals`] method to compare two bitvectors, which uses the select
+/// iterators to speed up the comparison.
+///
+/// This trait is sealed and cannot be implemented outside of this crate.
+/// It exists to deduplicate code between the `RsVec` struct and its archived form, and can be used
+/// to abstract over the different types.
+///
+/// [`select_iter`]: RsIterSupport::select_iter
+/// [`iter0`]: RsIterSupport::iter0
+/// [`iter1`]: RsIterSupport::iter1
+/// [`sparse_equals`]: RsIterSupport::sparse_equals
+pub trait RsIterSupport: RankSupport + SelectSupport {
     /// Get an iterator over the bits in the vector. The iterator will return the indices of the
     /// 0-bits or the 1-bits in the vector, depending on the constant `ZERO`
     /// (if true, 0-bits are returned).
@@ -34,6 +46,43 @@ pub trait RsIterSupport {
     ///
     /// See [`SelectIter`] for more information.
     fn iter1(&self) -> SelectIter<'_, false>;
+
+    /// Check if two `RsVec`s are equal. For sparse vectors (either sparsely filled with 1-bits or
+    /// 0-bits), this is faster than comparing the vectors bit by bit.
+    /// Choose the value of `ZERO` depending on which bits are more sparse.
+    ///
+    /// This method is faster than [`full_equals`] for sparse vectors beginning at roughly 1
+    /// million bits. Above 4 million bits, this method becomes faster than full equality in general.
+    ///
+    /// # Parameters
+    /// - `other`: The other `RsVec` to compare to.
+    /// - `ZERO`: Whether to compare the sparse 0-bits (true) or the sparse 1-bits (false).
+    ///
+    /// # Returns
+    /// `true` if the vectors' contents are equal, `false` otherwise.
+    ///
+    /// [`full_equals`]: RsVec::full_equals
+    fn sparse_equals<const ZERO: bool>(&self, other: &Self) -> bool {
+        if self.len() != other.len() {
+            return false;
+        }
+
+        if self.total_rank0() != other.total_rank0() || self.total_rank1() != other.total_rank1() {
+            return false;
+        }
+
+        let iter: SelectIter<ZERO> = self.select_iter();
+
+        for (rank, bit_index) in iter.enumerate() {
+            // since rank is inlined, we get dead code elimination depending on ZERO
+            if (other.get_unchecked(bit_index) == 0) != ZERO || other.rank(ZERO, bit_index) != rank
+            {
+                return false;
+            }
+        }
+
+        true
+    }
 }
 
 impl RsIterSupport for RsVec {

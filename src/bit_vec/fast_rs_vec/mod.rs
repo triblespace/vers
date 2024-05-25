@@ -102,6 +102,14 @@ mod sealed {
     }
 }
 
+/// Defines the [`rank0`] and [`rank1`] methods for rank and select bitvector structs.
+/// Also defines a range of other general methods.
+/// This trait is sealed and cannot be implemented outside of this crate.
+/// It exists to deduplicate code between the `RsVec` struct and its archived form, and can be used
+/// to abstract over the different types.
+///
+/// [`rank0`]: RankSupport::rank0
+/// [`rank1`]: RankSupport::rank1
 pub trait RankSupport: SealedRankSelect {
     /// Return the total number of 0-bits in the bit-vector
     fn total_rank0(&self) -> usize;
@@ -133,7 +141,15 @@ pub trait RankSupport: SealedRankSelect {
         self.rank(false, pos)
     }
 
-    // I measured 5-10% improvement with this. I don't know why it's not inlined by default, the
+    /// Return the rank of the bit at the given position. The rank is the number of
+    /// zero or one bits in the vector up to but excluding the bit at the given position.
+    /// Whether to use the 0-rank or 1-rank is determined by the `zero` parameter (true means zero).
+    /// Calling this function with an index larger than the length of the bit-vector will report the
+    /// total number of zero or one bits in the bit-vector.
+    ///
+    /// This function should be called through the [`rank0`] or [`rank1`] methods to benefit from
+    /// optimization.
+    // I measured 5-10% improvement with inlining. I don't know why it's not inlined by default, the
     // branch elimination profits alone should make it worth it.
     #[allow(clippy::inline_always)]
     #[inline(always)]

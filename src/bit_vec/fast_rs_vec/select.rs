@@ -1,7 +1,7 @@
 // Select code is in here to keep it more organized.
 
 use crate::bit_vec::fast_rs_vec::select::sealed::SealedSelectUtils;
-use crate::bit_vec::fast_rs_vec::{SelectIter, BLOCK_SIZE, SUPER_BLOCK_SIZE};
+use crate::bit_vec::fast_rs_vec::{BLOCK_SIZE, SUPER_BLOCK_SIZE};
 use crate::bit_vec::WORD_SIZE;
 use crate::util::pdep::Pdep;
 use crate::util::unroll;
@@ -208,9 +208,14 @@ pub(crate) mod sealed {
     }
 }
 
-pub trait SelectSupport:
-    SealedSelectUtils + super::RankSupport + super::iter::RsIterSupport
-{
+/// Defines the [`select0`] and [`select1`] methods for rank and select bitvector structs.
+/// This trait is sealed and cannot be implemented outside of this crate.
+/// It exists to deduplicate code between the `RsVec` struct and its archived form, and can be used
+/// to abstract over the different types.
+///
+/// [`select0`]: SelectSupport::select0
+/// [`select1`]: SelectSupport::select1
+pub trait SelectSupport: SealedSelectUtils + super::RankSupport {
     /// Return the position of the 0-bit with the given rank. See `rank0`.
     /// The following holds:
     /// ``select0(rank0(pos)) == pos``
@@ -365,43 +370,6 @@ pub trait SelectSupport:
             + (1 << rank)
                 .pdep(self.get_data_word(block_index * BLOCK_SIZE / WORD_SIZE + 7))
                 .trailing_zeros() as usize
-    }
-
-    /// Check if two `RsVec`s are equal. For sparse vectors (either sparsely filled with 1-bits or
-    /// 0-bits), this is faster than comparing the vectors bit by bit.
-    /// Choose the value of `ZERO` depending on which bits are more sparse.
-    ///
-    /// This method is faster than [`full_equals`] for sparse vectors beginning at roughly 1
-    /// million bits. Above 4 million bits, this method becomes faster than full equality in general.
-    ///
-    /// # Parameters
-    /// - `other`: The other `RsVec` to compare to.
-    /// - `ZERO`: Whether to compare the sparse 0-bits (true) or the sparse 1-bits (false).
-    ///
-    /// # Returns
-    /// `true` if the vectors' contents are equal, `false` otherwise.
-    ///
-    /// [`full_equals`]: RsVec::full_equals
-    fn sparse_equals<const ZERO: bool>(&self, other: &Self) -> bool {
-        if self.len() != other.len() {
-            return false;
-        }
-
-        if self.total_rank0() != other.total_rank0() || self.total_rank1() != other.total_rank1() {
-            return false;
-        }
-
-        let iter: SelectIter<ZERO> = self.select_iter();
-
-        for (rank, bit_index) in iter.enumerate() {
-            // since rank is inlined, we get dead code elimination depending on ZERO
-            if (other.get_unchecked(bit_index) == 0) != ZERO || other.rank(ZERO, bit_index) != rank
-            {
-                return false;
-            }
-        }
-
-        true
     }
 }
 
