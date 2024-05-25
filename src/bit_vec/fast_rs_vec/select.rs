@@ -15,7 +15,7 @@ pub(crate) mod sealed {
     use crate::bit_vec::fast_rs_vec::{BLOCK_SIZE, SUPER_BLOCK_SIZE};
     use crate::util::unroll;
 
-    pub trait SealedSelectUtils: super::super::SealedRankSelect {
+    pub trait SealedSelectUtils: super::super::SealedDataAccess {
         /// Search for the block in a superblock that contains the rank. This function is only used
         /// internally and is not part of the public API.
         /// The function uses SIMD instructions if available, otherwise it falls back to a naive
