@@ -61,6 +61,8 @@ const SELECT_BLOCK_SIZE: usize = 1 << 13;
 /// first block in a super-block (which would be a performance hit due branch prediction failures).
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "validation", archive(check_bytes))]
 struct BlockDescriptor {
     zeros: u16,
 }
@@ -70,6 +72,8 @@ struct BlockDescriptor {
 /// space. The `zeros` field is the number of zeros up to the super-block.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "validation", archive(check_bytes))]
 struct SuperBlockDescriptor {
     zeros: usize,
 }
@@ -79,6 +83,8 @@ struct SuperBlockDescriptor {
 /// The indices do not point into the bit-vector, but into the select-block vector.
 #[derive(Clone, Copy, Debug)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "rkyv", derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize))]
+#[cfg_attr(feature = "validation", archive(check_bytes))]
 struct SelectSuperBlockDescriptor {
     index_0: usize,
     index_1: usize,
