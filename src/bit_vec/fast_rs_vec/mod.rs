@@ -1,6 +1,7 @@
 //! A fast succinct bit vector implementation with rank and select queries. Rank computes in
 //! constant-time, select on average in constant-time, with a logarithmic worst case.
 
+use std::mem::size_of;
 use std::ops::{Range, RangeTo};
 
 use crate::bit_vec::fast_rs_vec::sealed::SealedDataAccess;
@@ -272,6 +273,16 @@ impl RsVec {
             rank1: vec.len
                 - (total_zeros + current_zeros - ((WORD_SIZE - (vec.len % WORD_SIZE)) % WORD_SIZE)),
         }
+    }
+
+    /// Returns the number of bytes used on the heap for this vector. This does not include
+    /// allocated space that is not used (e.g. by the allocation behavior of `Vec`).
+    #[must_use]
+    pub fn heap_size(&self) -> usize {
+        self.data.len() * size_of::<u64>()
+            + self.blocks.len() * size_of::<BlockDescriptor>()
+            + self.super_blocks.len() * size_of::<SuperBlockDescriptor>()
+            + self.select_blocks.len() * size_of::<SelectSuperBlockDescriptor>()
     }
 }
 

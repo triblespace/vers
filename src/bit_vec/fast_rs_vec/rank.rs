@@ -1,5 +1,4 @@
-use std::mem::size_of;
-use crate::bit_vec::fast_rs_vec::{BLOCK_SIZE, BlockDescriptor, SelectSuperBlockDescriptor, SUPER_BLOCK_SIZE, SuperBlockDescriptor};
+use crate::bit_vec::fast_rs_vec::{BLOCK_SIZE, SUPER_BLOCK_SIZE};
 use crate::bit_vec::fast_rs_vec::sealed::SealedDataAccess;
 use crate::bit_vec::WORD_SIZE;
 use crate::RsVec;
@@ -225,11 +224,6 @@ pub trait RankSupport: SealedDataAccess {
 
         true
     }
-
-    /// Returns the number of bytes used on the heap for this vector. This does not include
-    /// allocated space that is not used (e.g. by the allocation behavior of `Vec`).
-    #[must_use]
-    fn heap_size(&self) -> usize;
 }
 
 impl RankSupport for RsVec {
@@ -239,12 +233,5 @@ impl RankSupport for RsVec {
 
     fn total_rank1(&self) -> usize {
         self.rank1
-    }
-
-    fn heap_size(&self) -> usize {
-        self.data.len() * size_of::<u64>()
-            + self.blocks.len() * size_of::<BlockDescriptor>()
-            + self.super_blocks.len() * size_of::<SuperBlockDescriptor>()
-            + self.select_blocks.len() * size_of::<SelectSuperBlockDescriptor>()
     }
 }
